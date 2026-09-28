@@ -16,6 +16,10 @@ local.properties
 *.keystore
 *.hprof
 
+# Python test caches
+__pycache__/
+*.pyc
+
 # OS / editors
 .DS_Store
 *.swp

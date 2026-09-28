@@ -36,8 +36,9 @@ jobs:
           ./gradlew :engine:test :app:assembleDebug --stacktrace 2>&1 | tee /tmp/sengine-gradle.log
           result=${PIPESTATUS[0]}
           if [ "$result" -ne 0 ]; then
-            # A short annotation is accessible even when CI log downloads are unavailable.
-            details=$(tail -n 45 /tmp/sengine-gradle.log)
+            # Extract compiler errors first: downloaded Actions logs may be inaccessible here.
+            details=$(grep -E '(^e: |^error: |^.*: error: |^> Task .*FAILED|^FAILURE:|^\* What went wrong:|^Execution failed for task)' /tmp/sengine-gradle.log | head -n 24 || true)
+            if [ -z "$details" ]; then details=$(tail -n 20 /tmp/sengine-gradle.log); fi
             details=${details//\%/\%25}
             details=${details//$'\r'/\%0D}
             details=${details//$'\n'/\%0A}
