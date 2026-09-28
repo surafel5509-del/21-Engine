@@ -86,6 +86,8 @@ data class GameScene(
     val background: Int = 0xFF151E30.toInt(),
     val gravity: Vec2 = Vec2(0f, 720f),
     val camera: SceneCamera = SceneCamera(),
+    val gameWidth: Float = 360f,
+    val gameHeight: Float = 300f,
     /** The last entity is drawn on top. */
     val entities: List<Entity> = emptyList(),
 )

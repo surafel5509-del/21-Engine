@@ -62,6 +62,15 @@ fun HierarchyPanel(state: StudioState, vm: StudioViewModel) {
             }
             ToolIcon(Icons.Rounded.Add, "Add rectangle", { vm.addEntity(VisualType.BOX) }, highlighted = true)
         }
+        Row(
+            Modifier.fillMaxWidth().background(StudioColors.raised).clickable { vm.select(null) }
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("▾  ◈", color = StudioColors.blue)
+            Spacer(Modifier.width(8.dp))
+            Text("${scene.name}  /  Camera", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         if (scene.entities.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(22.dp)) {
                 Text("A fresh canvas.", style = MaterialTheme.typography.titleMedium)
@@ -87,10 +96,15 @@ fun HierarchyPanel(state: StudioState, vm: StudioViewModel) {
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(entity.name.ifBlank { "Unnamed object" }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (entity.visible) StudioColors.text else StudioColors.muted)
-                            Text(entity.visual.type.name.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = StudioColors.muted, fontSize = 10.sp)
+                            Text(entity.visual.type.name.lowercase().replaceFirstChar { it.uppercase() } +
+                                if (entity.scriptId != null) "  •  {} Script" else "",
+                                style = MaterialTheme.typography.bodySmall, color = StudioColors.muted, fontSize = 10.sp)
                         }
-                        ToolIcon(if (entity.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, if (entity.visible) "Hide" else "Show", { vm.editEntity(entity.id) { it.copy(visible = !it.visible) } })
-                        ToolIcon(if (entity.locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen, if (entity.locked) "Unlock" else "Lock", { vm.editEntity(entity.id) { it.copy(locked = !it.locked) } })
+                        Box(Modifier.size(28.dp).clickable { vm.editEntity(entity.id) { it.copy(visible = !it.visible) } }, contentAlignment = Alignment.Center) {
+                            Icon(if (entity.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                if (entity.visible) "Hide ${entity.name}" else "Show ${entity.name}",
+                                tint = StudioColors.muted, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -185,6 +199,17 @@ fun ScenesPanel(state: StudioState, vm: StudioViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberField("X", scene.gravity.x, { vm.setGravity(it, scene.gravity.y) }, Modifier.weight(1f), -2000f..2000f)
             NumberField("Y", scene.gravity.y, { vm.setGravity(scene.gravity.x, it) }, Modifier.weight(1f), -2000f..2000f)
+        }
+        Spacer(Modifier.height(15.dp))
+        SectionLabel("Game view", "WORLD UNITS")
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumberField("Width", scene.gameWidth, { vm.setGameSize(it, scene.gameHeight) }, Modifier.weight(1f), 100f..4000f)
+            NumberField("Height", scene.gameHeight, { vm.setGameSize(scene.gameWidth, it) }, Modifier.weight(1f), 100f..4000f)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { vm.setGameSize(640f, 360f) }) { Text("Landscape 16:9") }
+            TextButton(onClick = { vm.setGameSize(360f, 640f) }) { Text("Portrait 9:16") }
         }
         Spacer(Modifier.height(25.dp))
     }

@@ -14,8 +14,10 @@ import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import com.sengine.core.ColliderShape
 import com.sengine.core.Entity
 import com.sengine.core.GameScene
+import com.sengine.studio.EditorTool
 import com.sengine.core.SceneCamera
 import com.sengine.core.VisualType
 import com.sengine.core.hitTest
@@ -30,9 +32,13 @@ fun SceneCanvas(
     projectId: String,
     selectedId: String?,
     playing: Boolean,
+    tool: EditorTool,
+    showColliders: Boolean,
     resolveAsset: (String, String) -> File,
     onSelect: (String?) -> Unit,
     onDrag: (String, Float, Float) -> Unit,
+    onRotate: (String, Float) -> Unit,
+    onResize: (String, Float) -> Unit,
     onCamera: (SceneCamera) -> Unit,
     onGestureBegin: () -> Unit,
     onGestureEnd: () -> Unit,
@@ -43,9 +49,11 @@ fun SceneCanvas(
         modifier = modifier,
         factory = { context -> SceneViewport(context) },
         update = { view ->
-            view.bind(scene, projectId, selectedId, playing, resolveAsset)
+            view.bind(scene, projectId, selectedId, playing, tool, showColliders, resolveAsset)
             view.onSelect = onSelect
             view.onDrag = onDrag
+            view.onRotate = onRotate
+            view.onResize = onResize
             view.onCamera = onCamera
             view.onGestureBegin = onGestureBegin
             view.onGestureEnd = onGestureEnd
@@ -60,9 +68,13 @@ private class SceneViewport(context: Context) : View(context) {
     private var projectId = ""
     private var selectedId: String? = null
     private var playing = false
+    private var tool = EditorTool.MOVE
+    private var showColliders = false
     private var resolveAsset: (String, String) -> File = { _, _ -> File("") }
     var onSelect: (String?) -> Unit = {}
     var onDrag: (String, Float, Float) -> Unit = { _, _, _ -> }
+    var onRotate: (String, Float) -> Unit = { _, _ -> }
+    var onResize: (String, Float) -> Unit = { _, _ -> }
     var onCamera: (SceneCamera) -> Unit = {}
     var onGestureBegin: () -> Unit = {}
     var onGestureEnd: () -> Unit = {}
@@ -84,6 +96,7 @@ private class SceneViewport(context: Context) : View(context) {
 
     fun bind(
         next: GameScene, nextProjectId: String, selection: String?, isPlaying: Boolean,
+        selectedTool: EditorTool, debugColliders: Boolean,
         assetResolver: (String, String) -> File,
     ) {
         if (nextProjectId != projectId) bitmaps.evictAll()
@@ -91,6 +104,8 @@ private class SceneViewport(context: Context) : View(context) {
         scene = next
         selectedId = selection
         playing = isPlaying
+        tool = selectedTool
+        showColliders = debugColliders
         resolveAsset = assetResolver
         invalidate()
     }
@@ -109,6 +124,7 @@ private class SceneViewport(context: Context) : View(context) {
         canvas.scale(scale, scale)
         canvas.translate(-scene.camera.x, -scene.camera.y)
         drawGrid(canvas, scale)
+        drawGameFrame(canvas, scale)
         scene.entities.forEach { if (it.visible) drawEntity(canvas, it, scale) }
         canvas.restore()
     }
@@ -129,6 +145,17 @@ private class SceneViewport(context: Context) : View(context) {
         paint.color = Color.argb(65, 161, 181, 233)
         canvas.drawLine(0f, top, 0f, bottom, paint)
         canvas.drawLine(left, 0f, right, 0f, paint)
+    }
+
+    private fun drawGameFrame(canvas: Canvas, scale: Float) {
+        val frame = RectF(-scene.gameWidth / 2f, -scene.gameHeight / 2f, scene.gameWidth / 2f, scene.gameHeight / 2f)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(15, 240, 244, 255)
+        canvas.drawRect(frame, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 2f / scale
+        paint.color = Color.argb(210, 240, 244, 255)
+        canvas.drawRect(frame, paint)
     }
 
     private fun drawEntity(canvas: Canvas, entity: Entity, scale: Float) {
@@ -165,15 +192,38 @@ private class SceneViewport(context: Context) : View(context) {
                 }
             }
         }
+        entity.physics?.let { physics ->
+            if (showColliders) {
+                paint.style = Paint.Style.STROKE
+                paint.color = when {
+                    physics.sensor -> Color.rgb(255, 144, 185)
+                    physics.type == com.sengine.core.BodyType.DYNAMIC -> Color.rgb(105, 227, 184)
+                    else -> Color.rgb(244, 184, 103)
+                }
+                paint.strokeWidth = 2f / scale
+                if (physics.collider == ColliderShape.CIRCLE ||
+                    (physics.collider == ColliderShape.AUTO && entity.visual.type == VisualType.CIRCLE)
+                ) {
+                    canvas.drawCircle(0f, 0f, minOf(t.width, t.height) / 2f, paint)
+                } else canvas.drawRect(rect, paint)
+            }
+        }
         if (!playing && selectedId == entity.id) {
             paint.style = Paint.Style.STROKE
-            paint.color = Color.rgb(193, 177, 255)
+            paint.color = Color.rgb(154, 186, 255)
             paint.strokeWidth = 2f / scale
             val padding = 4f / scale
             canvas.drawRect(RectF(rect.left - padding, rect.top - padding, rect.right + padding, rect.bottom + padding), paint)
             paint.style = Paint.Style.FILL
             listOf(rect.left to rect.top, rect.right to rect.top, rect.left to rect.bottom, rect.right to rect.bottom).forEach { (x, y) ->
                 canvas.drawCircle(x, y, 4f / scale, paint)
+            }
+            if (tool == EditorTool.ROTATE) {
+                paint.style = Paint.Style.STROKE
+                canvas.drawCircle(0f, 0f, maxOf(t.width, t.height) * .6f, paint)
+            } else if (tool == EditorTool.MOVE) {
+                canvas.drawLine(0f, 0f, 22f / scale, 0f, paint)
+                canvas.drawLine(0f, 0f, 0f, 22f / scale, paint)
             }
         }
         canvas.restore()
@@ -205,10 +255,12 @@ private class SceneViewport(context: Context) : View(context) {
                 if (playing) {
                     onPlayTap(x, y)
                 } else {
-                    val hit = scene.hitTest(x, y, includeLocked = true)
-                    draggedId = hit?.takeUnless { it.locked }?.id
-                    selectedId = hit?.id
-                    onSelect(hit?.id)
+                    if (tool != EditorTool.PAN) {
+                        val hit = scene.hitTest(x, y, includeLocked = true)
+                        draggedId = hit?.takeUnless { it.locked }?.id
+                        selectedId = hit?.id
+                        onSelect(hit?.id)
+                    } else draggedId = null
                     onGestureBegin()
                     invalidate()
                 }
@@ -251,12 +303,34 @@ private class SceneViewport(context: Context) : View(context) {
                         if (target != null) {
                             val worldDx = dx / worldScale()
                             val worldDy = dy / worldScale()
-                            scene = scene.updateEntity(target) { entity ->
-                                entity.copy(transform = entity.transform.copy(
-                                    x = entity.transform.x + worldDx, y = entity.transform.y + worldDy,
-                                ))
+                            when (tool) {
+                                EditorTool.MOVE -> {
+                                    scene = scene.updateEntity(target) { entity ->
+                                        entity.copy(transform = entity.transform.copy(
+                                            x = entity.transform.x + worldDx, y = entity.transform.y + worldDy,
+                                        ))
+                                    }
+                                    onDrag(target, worldDx, worldDy)
+                                }
+                                EditorTool.ROTATE -> {
+                                    val degrees = dx * .65f
+                                    scene = scene.updateEntity(target) { entity ->
+                                        entity.copy(transform = entity.transform.copy(rotation = entity.transform.rotation + degrees))
+                                    }
+                                    onRotate(target, degrees)
+                                }
+                                EditorTool.SCALE -> {
+                                    val change = worldDx - worldDy
+                                    scene = scene.updateEntity(target) { entity ->
+                                        entity.copy(transform = entity.transform.copy(
+                                            width = (entity.transform.width + change).coerceIn(1f, 10000f),
+                                            height = (entity.transform.height + change).coerceIn(1f, 10000f),
+                                        ))
+                                    }
+                                    onResize(target, change)
+                                }
+                                EditorTool.PAN -> Unit
                             }
-                            onDrag(target, worldDx, worldDy)
                         } else {
                             updateCamera(scene.camera.copy(
                                 x = scene.camera.x - dx / worldScale(),

@@ -1,5 +1,7 @@
 package com.sengine.studio
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sengine.studio.ui.Dashboard
@@ -37,8 +40,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = AndroidColor.rgb(11, 16, 27)
-        window.navigationBarColor = AndroidColor.rgb(11, 16, 27)
+        window.statusBarColor = AndroidColor.rgb(24, 26, 30)
+        window.navigationBarColor = AndroidColor.rgb(24, 26, 30)
         setContent { StudioApp(vm) }
     }
 
@@ -51,6 +54,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun StudioApp(vm: StudioViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val activity = LocalContext.current as? Activity
+    LaunchedEffect(state.project != null, activity) {
+        // Request actual display rotation, not a rotated drawing inside a portrait Activity.
+        val requested = if (state.project != null) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (activity?.requestedOrientation != requested) activity?.requestedOrientation = requested
+    }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importImage(uri)
     }

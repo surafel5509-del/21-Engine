@@ -20,47 +20,45 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CenterFocusStrong
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.FileDownload
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.OpenWith
+import androidx.compose.material.icons.rounded.PanTool
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Redo
+import androidx.compose.material.icons.rounded.RotateRight
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.sengine.core.GameScene
 import com.sengine.core.VisualType
-import com.sengine.studio.EditorPanel
+import com.sengine.studio.EditorTool
 import com.sengine.studio.SaveStatus
 import com.sengine.studio.StudioState
 import com.sengine.studio.StudioViewModel
 
+/** Landscape workspace: hierarchy | scene viewport | inspector, with a collapsible bottom dock. */
 @Composable
 fun EditorScreen(
     state: StudioState, vm: StudioViewModel, onPickImage: () -> Unit,
@@ -68,28 +66,49 @@ fun EditorScreen(
 ) {
     val project = state.project ?: return
     val scene = state.playScene ?: project.activeScene()
-    Column(Modifier.fillMaxSize().background(StudioColors.background)) {
-        EditorTopBar(state, vm, onExportPackage, onExportWeb)
-        BoxWithConstraints(Modifier.weight(1f)) {
-            if (maxWidth >= 700.dp) {
-                Row(Modifier.fillMaxSize()) {
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        SceneToolbar(state, vm, onPickImage)
-                        ViewportFrame(scene, state, vm, Modifier.weight(1f).fillMaxWidth())
-                        ViewportStatus(scene, state.playing)
-                    }
-                    Box(Modifier.width(1.dp).fillMaxHeight().background(StudioColors.border))
-                    EditorDetails(state, vm, onPickImage, Modifier.width(350.dp).fillMaxHeight())
+    var dockExpanded by rememberSaveable { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxSize().background(StudioColors.background)) {
+        val leftWidth = (maxWidth * .21f).coerceIn(150.dp, 252.dp)
+        val rightWidth = (maxWidth * .27f).coerceIn(205.dp, 360.dp)
+        val dockHeight = if (dockExpanded) { if (maxHeight < 490.dp) 132.dp else 196.dp } else 32.dp
+        Column(Modifier.fillMaxSize()) {
+            EditorTopBar(state, vm, onExportPackage, onExportWeb)
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.width(leftWidth).fillMaxHeight().background(StudioColors.surface)) {
+                    HierarchyPanel(state, vm)
                 }
-            } else {
-                Column(Modifier.fillMaxSize()) {
+                Box(Modifier.width(1.dp).fillMaxHeight().background(StudioColors.border))
+                Column(Modifier.weight(1f).fillMaxHeight()) {
                     SceneToolbar(state, vm, onPickImage)
-                    ViewportFrame(scene, state, vm, Modifier.weight(1.08f).fillMaxWidth())
-                    ViewportStatus(scene, state.playing)
-                    EditorDetails(state, vm, onPickImage, Modifier.weight(.92f).fillMaxWidth())
+                    ViewportFrame(scene, state, vm, Modifier.weight(1f).fillMaxWidth())
+                    ViewportStatus(scene, state)
+                }
+                Box(Modifier.width(1.dp).fillMaxHeight().background(StudioColors.border))
+                Column(Modifier.width(rightWidth).fillMaxHeight().background(StudioColors.surface)) {
+                    Row(
+                        Modifier.fillMaxWidth().height(35.dp).background(StudioColors.raised).padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (state.playing) "RUNTIME INSPECTOR" else if (state.selectedId == null) "SCENE INSPECTOR" else "INSPECTOR",
+                            style = MaterialTheme.typography.labelMedium, color = StudioColors.muted,
+                        )
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        when {
+                            state.playing -> RuntimeInspector(state, vm)
+                            state.selectedId != null -> InspectorPanel(state, vm)
+                            else -> ScenesPanel(state, vm)
+                        }
+                    }
                 }
             }
+            DockPanel(state, vm, dockExpanded, { dockExpanded = !dockExpanded }, onPickImage, onExportPackage, onExportWeb, Modifier.height(dockHeight))
         }
+    }
+    state.editingScriptId?.let { id ->
+        val script = project.scripts.firstOrNull { it.id == id }
+        if (script != null) ScriptEditorDialog(script, vm)
     }
 }
 
@@ -101,73 +120,72 @@ private fun EditorTopBar(
     val project = state.project ?: return
     var exportMenu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().height(62.dp).background(StudioColors.surface).padding(horizontal = 10.dp),
+        Modifier.fillMaxWidth().height(49.dp).background(StudioColors.surface).padding(horizontal = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ToolIcon(Icons.Rounded.ArrowBack, "Back to projects", vm::closeProject)
-        Column(Modifier.weight(1f).padding(start = 6.dp)) {
-            Text(project.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ToolIcon(Icons.Rounded.ArrowBack, "Projects", vm::closeProject)
+        Column(Modifier.width(149.dp).padding(start = 5.dp)) {
+            Text("${project.name} / ${project.activeScene().name}", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val status = when (state.saveStatus) {
-                SaveStatus.SAVED -> "ALL CHANGES SAVED"
-                SaveStatus.SAVING -> "SAVING PROJECT…"
-                SaveStatus.ERROR -> "SAVE FAILED · TAP SAVE"
+                SaveStatus.SAVED -> "SAVED"
+                SaveStatus.SAVING -> "SAVING…"
+                SaveStatus.ERROR -> "SAVE FAILED"
             }
-            Text(status, style = MaterialTheme.typography.labelMedium, color = if (state.saveStatus == SaveStatus.ERROR) StudioColors.danger else StudioColors.muted, maxLines = 1)
+            Text(status, style = MaterialTheme.typography.labelMedium, color = if (state.saveStatus == SaveStatus.ERROR) StudioColors.danger else StudioColors.muted)
         }
-        if (!state.playing) {
-            Box {
-                ToolIcon(Icons.Rounded.FileDownload, "Export project or web game", { exportMenu = true })
-                DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
-                    DropdownMenuItem(text = { Text("Project package (.sengine)") }, onClick = {
-                        exportMenu = false; onExportPackage(project.name)
-                    })
-                    DropdownMenuItem(text = { Text("Playable web game (.zip)") }, onClick = {
-                        exportMenu = false; onExportWeb(project.name)
-                    })
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            ToolIcon(Icons.Rounded.PanTool, "Pan canvas", { vm.setTool(EditorTool.PAN) }, highlighted = state.tool == EditorTool.PAN && !state.playing, enabled = !state.playing)
+            ToolIcon(Icons.Rounded.OpenWith, "Move object", { vm.setTool(EditorTool.MOVE) }, highlighted = state.tool == EditorTool.MOVE && !state.playing, enabled = !state.playing)
+            ToolIcon(Icons.Rounded.RotateRight, "Rotate object", { vm.setTool(EditorTool.ROTATE) }, highlighted = state.tool == EditorTool.ROTATE && !state.playing, enabled = !state.playing)
+            ToolIcon(Icons.Rounded.AspectRatio, "Scale object", { vm.setTool(EditorTool.SCALE) }, highlighted = state.tool == EditorTool.SCALE && !state.playing, enabled = !state.playing)
+            Box(Modifier.width(1.dp).height(26.dp).background(StudioColors.border))
+            Badge("2D", StudioColors.blue)
+            ToolIcon(Icons.Rounded.BugReport, "Show collision shapes", vm::toggleColliders, highlighted = state.showColliders)
+            ToolIcon(Icons.Rounded.Undo, "Undo", vm::undo, enabled = !state.playing && state.canUndo)
+            ToolIcon(Icons.Rounded.Redo, "Redo", vm::redo, enabled = !state.playing && state.canRedo)
+            if (!state.playing) {
+                ToolIcon(Icons.Rounded.Save, "Save project", vm::saveNow)
+                Box {
+                    ToolIcon(Icons.Rounded.FileDownload, "Export or build", { exportMenu = true })
+                    DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                        DropdownMenuItem(text = { Text("Project package (.sengine)") }, onClick = {
+                            exportMenu = false; onExportPackage(project.name)
+                        })
+                        DropdownMenuItem(text = { Text("Playable web game (.zip)") }, onClick = {
+                            exportMenu = false; onExportWeb(project.name)
+                        })
+                    }
                 }
             }
-            ToolIcon(Icons.Rounded.Save, "Save project", vm::saveNow)
         }
-        Spacer(Modifier.width(5.dp))
-        Button(
-            onClick = { if (state.playing) vm.stop() else vm.play() },
-            colors = ButtonDefaults.buttonColors(containerColor = if (state.playing) StudioColors.raised else StudioColors.mint),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.height(38.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
-        ) {
-            Icon(if (state.playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.width(18.dp), tint = if (state.playing) StudioColors.mint else StudioColors.background)
-            Text(if (state.playing) "Stop" else "Play", color = if (state.playing) StudioColors.mint else StudioColors.background, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        }
+        ToolIcon(Icons.Rounded.PlayArrow, "Play", vm::play, enabled = !state.playing, highlighted = state.playing)
+        ToolIcon(if (state.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (state.paused) "Resume" else "Pause", vm::togglePause, enabled = state.playing)
+        ToolIcon(Icons.Rounded.SkipNext, "Step one physics frame", vm::stepFrame, enabled = state.playing && state.paused)
+        ToolIcon(Icons.Rounded.Stop, "Stop", vm::stop, enabled = state.playing)
     }
 }
 
 @Composable
 private fun SceneToolbar(state: StudioState, vm: StudioViewModel, onPickImage: () -> Unit) {
     val scene = state.project?.activeScene() ?: return
-    var menu by remember { mutableStateOf(false) }
+    var addMenu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().height(52.dp).background(StudioColors.background)
-            .horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().height(36.dp).background(StudioColors.raised).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(scene.name.uppercase(), style = MaterialTheme.typography.labelMedium, color = StudioColors.violet, maxLines = 1)
-        Spacer(Modifier.width(8.dp))
-        Text("/  2D", style = MaterialTheme.typography.labelMedium, color = StudioColors.muted)
-        Spacer(Modifier.width(12.dp))
+        Text(scene.name.uppercase(), style = MaterialTheme.typography.labelMedium, color = StudioColors.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box {
-            ToolIcon(Icons.Rounded.Add, "Add object", { menu = true }, enabled = !state.playing, highlighted = true)
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("Rectangle") }, onClick = { menu = false; vm.addEntity(VisualType.BOX) })
-                DropdownMenuItem(text = { Text("Circle") }, onClick = { menu = false; vm.addEntity(VisualType.CIRCLE) })
-                DropdownMenuItem(text = { Text("Text") }, onClick = { menu = false; vm.addEntity(VisualType.TEXT) })
-                DropdownMenuItem(text = { Text("Import image…") }, onClick = { menu = false; onPickImage() })
+            ToolIcon(Icons.Rounded.Add, "Add object", { addMenu = true }, enabled = !state.playing)
+            DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                DropdownMenuItem(text = { Text("Rectangle") }, onClick = { addMenu = false; vm.addEntity(VisualType.BOX) })
+                DropdownMenuItem(text = { Text("Circle") }, onClick = { addMenu = false; vm.addEntity(VisualType.CIRCLE) })
+                DropdownMenuItem(text = { Text("Text") }, onClick = { addMenu = false; vm.addEntity(VisualType.TEXT) })
+                DropdownMenuItem(text = { Text("Sprite from image…") }, onClick = { addMenu = false; onPickImage() })
             }
         }
-        ToolIcon(Icons.Rounded.Undo, "Undo", vm::undo, enabled = !state.playing && state.canUndo)
-        ToolIcon(Icons.Rounded.Redo, "Redo", vm::redo, enabled = !state.playing && state.canRedo)
-        ToolIcon(Icons.Rounded.ContentCopy, "Duplicate selected object", { state.selectedId?.let(vm::duplicateEntity) }, enabled = !state.playing && state.selectedId != null)
-        ToolIcon(Icons.Rounded.Image, "Import image", onPickImage, enabled = !state.playing)
+        ToolIcon(Icons.Rounded.ZoomOut, "Zoom out", { vm.zoom(.8f) }, enabled = !state.playing)
+        ToolIcon(Icons.Rounded.CenterFocusStrong, "Reset scene camera", vm::frameScene, enabled = !state.playing)
+        ToolIcon(Icons.Rounded.ZoomIn, "Zoom in", { vm.zoom(1.25f) }, enabled = !state.playing)
     }
 }
 
@@ -179,98 +197,55 @@ private fun ViewportFrame(scene: GameScene, state: StudioState, vm: StudioViewMo
             scene = scene, projectId = project.id,
             selectedId = if (state.playing) null else state.selectedId,
             playing = state.playing,
+            tool = state.tool,
+            showColliders = state.showColliders,
             resolveAsset = vm::assetFile,
             onSelect = vm::select,
             onDrag = vm::dragEntity,
+            onRotate = vm::rotateEntity,
+            onResize = vm::resizeEntity,
             onCamera = vm::gestureCamera,
             onGestureBegin = vm::beginGesture,
             onGestureEnd = vm::endGesture,
             onPlayTap = vm::playTap,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
-            Badge(if (state.playing) "● Live preview" else "◇ Scene view", if (state.playing) StudioColors.mint else StudioColors.violet)
-        }
-        if (state.playing) {
-            Text(
-                "Tap a dynamic object to jump",
-                color = Color.White, style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)
-                    .background(StudioColors.background.copy(alpha = .75f), RoundedCornerShape(9.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-        } else {
-            Row(
-                Modifier.align(Alignment.BottomEnd).padding(10.dp)
-                    .background(StudioColors.surface.copy(alpha = .95f), RoundedCornerShape(12.dp)),
-            ) {
-                ToolIcon(Icons.Rounded.ZoomOut, "Zoom out", { vm.zoom(.8f) })
-                ToolIcon(Icons.Rounded.CenterFocusStrong, "Reset camera", vm::frameScene)
-                ToolIcon(Icons.Rounded.ZoomIn, "Zoom in", { vm.zoom(1.25f) })
-            }
-        }
+        Text(
+            if (state.playing) { if (state.paused) "PAUSED  •  ${scene.name}" else "PLAY  •  ${scene.name}  •  ${state.fps} FPS" }
+            else "EDIT  •  ${scene.name}  •  ${scene.entities.size} objects",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+            modifier = Modifier.align(Alignment.TopStart).padding(7.dp)
+                .background(StudioColors.background.copy(alpha = .88f), RoundedCornerShape(5.dp))
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+        )
     }
 }
 
 @Composable
-private fun ViewportStatus(scene: GameScene, playing: Boolean) {
+private fun ViewportStatus(scene: GameScene, state: StudioState) {
     Row(
-        Modifier.fillMaxWidth().height(30.dp).background(StudioColors.surface).padding(horizontal = 13.dp),
+        Modifier.fillMaxWidth().height(22.dp).background(StudioColors.surface).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(if (playing) "RUNTIME  •  60 HZ PHYSICS" else "DRAG TO PAN  •  PINCH TO ZOOM", style = MaterialTheme.typography.labelMedium, color = StudioColors.muted)
-        Text("${(scene.camera.zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = StudioColors.violet)
+        Text(
+            if (state.playing) "JBOX2D • 60 Hz • ${if (state.paused) "paused" else "running"}"
+            else "${state.tool.name}  •  drag empty space to pan  •  pinch to zoom",
+            style = MaterialTheme.typography.labelMedium, color = StudioColors.muted,
+        )
+        Text("${(scene.camera.zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = StudioColors.blue)
     }
 }
 
 @Composable
-private fun EditorDetails(state: StudioState, vm: StudioViewModel, onPickImage: () -> Unit, modifier: Modifier) {
-    Column(modifier.background(StudioColors.surface)) {
-        if (state.playing) {
-            Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Badge("Playing", StudioColors.mint)
-                Text("Your scene is alive.", style = MaterialTheme.typography.headlineSmall)
-                Text("Objects with Dynamic physics respond to gravity. Tap them in the viewport to jump. Stop play mode to return to your editable scene; runtime changes are discarded.", style = MaterialTheme.typography.bodyMedium, color = StudioColors.muted)
-                Spacer(Modifier.height(4.dp))
-                Button(onClick = vm::stop, colors = ButtonDefaults.buttonColors(containerColor = StudioColors.raised)) {
-                    Icon(Icons.Rounded.Stop, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Stop preview")
-                }
-            }
-        } else {
-            Row(Modifier.fillMaxWidth().height(52.dp).border(1.dp, StudioColors.border), verticalAlignment = Alignment.CenterVertically) {
-                PanelTab(EditorPanel.HIERARCHY, Icons.Rounded.Layers, state.panel, vm)
-                PanelTab(EditorPanel.INSPECTOR, Icons.Rounded.Tune, state.panel, vm)
-                PanelTab(EditorPanel.ASSETS, Icons.Rounded.Image, state.panel, vm)
-                PanelTab(EditorPanel.SCENES, Icons.Rounded.Folder, state.panel, vm)
-            }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (state.panel) {
-                    EditorPanel.HIERARCHY -> HierarchyPanel(state, vm)
-                    EditorPanel.INSPECTOR -> InspectorPanel(state, vm)
-                    EditorPanel.ASSETS -> AssetsPanel(state, vm, onPickImage)
-                    EditorPanel.SCENES -> ScenesPanel(state, vm)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.PanelTab(
-    panel: EditorPanel, icon: ImageVector, selected: EditorPanel, vm: StudioViewModel,
-) {
-    val active = panel == selected
-    androidx.compose.material3.TextButton(
-        onClick = { vm.showPanel(panel) },
-        modifier = Modifier.weight(1f).fillMaxHeight(),
-        shape = RoundedCornerShape(0.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Icon(icon, panel.name.lowercase(), Modifier.height(18.dp), tint = if (active) StudioColors.violet else StudioColors.muted)
-            Text(panel.name.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium, color = if (active) StudioColors.violet else StudioColors.muted, fontSize = 10.sp)
+private fun RuntimeInspector(state: StudioState, vm: StudioViewModel) {
+    Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Play mode")
+        Badge(if (state.paused) "Paused" else "Running", if (state.paused) StudioColors.danger else StudioColors.mint)
+        Text("${state.fps} FPS · ${state.playScene?.entities?.count { it.physics != null } ?: 0} bodies", style = MaterialTheme.typography.titleMedium)
+        Text("Tap game objects to send on tap events. Pause and step to inspect collision and script logs in the Console dock. Changes in play mode are discarded on Stop.", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+        androidx.compose.material3.TextButton(onClick = vm::toggleColliders) {
+            Text(if (state.showColliders) "Hide collider outlines" else "Show collider outlines")
         }
     }
 }

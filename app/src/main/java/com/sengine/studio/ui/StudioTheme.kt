@@ -10,16 +10,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 object StudioColors {
-    val background = Color(0xFF0B101B)
-    val surface = Color(0xFF131B2B)
-    val raised = Color(0xFF1B2639)
-    val border = Color(0xFF29354A)
-    val violet = Color(0xFFAD9BFF)
-    val mint = Color(0xFF58DBC5)
-    val blue = Color(0xFF83B6FF)
-    val text = Color(0xFFF4F5FF)
-    val muted = Color(0xFF92A1BA)
-    val danger = Color(0xFFFF8C99)
+    val background = Color(0xFF181A1E)
+    val surface = Color(0xFF22252A)
+    val raised = Color(0xFF2E3239)
+    val border = Color(0xFF414650)
+    val violet = Color(0xFF7FA7FF)
+    val mint = Color(0xFF6DD7BC)
+    val blue = Color(0xFF8DB8FF)
+    val text = Color(0xFFECEEF3)
+    val muted = Color(0xFFAFB6C3)
+    val danger = Color(0xFFFF909A)
 }
 
 private val colors = darkColorScheme(

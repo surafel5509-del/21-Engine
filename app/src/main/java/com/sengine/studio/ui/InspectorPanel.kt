@@ -54,6 +54,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.sengine.core.BodyType
+import com.sengine.core.ColliderShape
 import com.sengine.core.MotionType
 import com.sengine.core.PhysicsBody
 import com.sengine.core.VisualType
@@ -136,7 +137,7 @@ fun InspectorPanel(state: StudioState, vm: StudioViewModel) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 SectionLabel("Physics 2D")
-                Text("Axis-aligned colliders", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+                Text("Box2D • rotated shapes & contacts", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
             }
             Switch(checked = entity.physics != null, onCheckedChange = { enabled ->
                 vm.editEntity(entity.id) { it.copy(physics = if (enabled) PhysicsBody(BodyType.DYNAMIC) else null) }
@@ -150,12 +151,27 @@ fun InspectorPanel(state: StudioState, vm: StudioViewModel) {
                     }, label = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) })
                 }
             }
+            Text("Collider", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                ColliderShape.entries.forEach { shape ->
+                    FilterChip(selected = body.collider == shape, onClick = {
+                        vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(collider = shape)) }
+                    }, label = { Text(shape.name.lowercase().replaceFirstChar { it.uppercase() }) })
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumberField("Friction", body.friction, { value -> vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(friction = value)) } }, Modifier.weight(1f), 0f..1f)
+                NumberField("Bounce", body.bounce, { value -> vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(bounce = value)) } }, Modifier.weight(1f), 0f..1f)
+            }
+            Spacer(Modifier.height(6.dp))
             if (body.type == BodyType.DYNAMIC) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NumberField("Density", body.density, { value -> vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(density = value)) } }, Modifier.weight(1f), 0.01f..100f)
                     NumberField("Gravity ×", body.gravityScale, { value -> vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(gravityScale = value)) } }, Modifier.weight(1f), 0f..5f)
-                    NumberField("Bounce", body.bounce, { value -> vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(bounce = value)) } }, Modifier.weight(1f), 0f..1f)
                 }
                 Spacer(Modifier.height(6.dp))
+            }
+            if (body.type != BodyType.STATIC) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NumberField("Velocity X", body.velocity.x, { value -> vm.editEntity(entity.id) { current ->
                         current.copy(physics = current.physics?.let { it.copy(velocity = it.velocity.copy(x = value)) })
@@ -164,6 +180,20 @@ fun InspectorPanel(state: StudioState, vm: StudioViewModel) {
                         current.copy(physics = current.physics?.let { it.copy(velocity = it.velocity.copy(y = value)) })
                     } }, Modifier.weight(1f), -2000f..2000f)
                 }
+                Spacer(Modifier.height(6.dp))
+                NumberField("Linear damping", body.linearDamping, { value -> vm.editEntity(entity.id) { it.copy(physics = it.physics?.copy(linearDamping = value)) } }, range = 0f..20f)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Sensor (trigger only)", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Switch(checked = body.sensor, onCheckedChange = { checked -> vm.editEntity(entity.id) {
+                    it.copy(physics = it.physics?.copy(sensor = checked))
+                } })
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Fixed rotation", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Switch(checked = body.fixedRotation, onCheckedChange = { checked -> vm.editEntity(entity.id) {
+                    it.copy(physics = it.physics?.copy(fixedRotation = checked))
+                } })
             }
         }
         Spacer(Modifier.height(17.dp))
@@ -187,6 +217,27 @@ fun InspectorPanel(state: StudioState, vm: StudioViewModel) {
             Spacer(Modifier.height(6.dp))
             Text("Motion is evaluated from the object's starting transform in play mode.", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
         }
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(color = StudioColors.border)
+        Spacer(Modifier.height(12.dp))
+        SectionLabel("S Script", "EVENT-DRIVEN")
+        val attached = project.scripts.firstOrNull { it.id == entity.scriptId }
+        if (attached == null) {
+            Text("No script attached. Select a project script or create one in the Scripts dock.",
+                style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(attached.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                TextButton(onClick = { vm.openScriptEditor(attached.id) }) { Text("Edit") }
+                TextButton(onClick = { vm.attachScript(entity.id, null) }) { Text("Detach") }
+            }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            project.scripts.filterNot { it.id == entity.scriptId }.forEach { script ->
+                FilterChip(selected = false, onClick = { vm.attachScript(entity.id, script.id) }, label = { Text("+ ${script.name}") })
+            }
+        }
+        TextButton(onClick = vm::createScript) { Text("+ New script asset") }
         Spacer(Modifier.height(24.dp))
     }
     if (confirmDelete) {

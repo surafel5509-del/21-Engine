@@ -8,7 +8,9 @@ import com.sengine.core.BodyType
 import com.sengine.core.Entity
 import com.sengine.core.GameProject
 import com.sengine.core.GameScene
-import com.sengine.core.Motion
+import com.sengine.core.EngineLog
+import com.sengine.core.EngineLogLevel
+import com.sengine.core.ScriptAsset
 import com.sengine.core.PhysicsBody
 import com.sengine.core.ProjectFactory
 import com.sengine.core.ProjectTemplate
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 enum class EditorPanel { HIERARCHY, INSPECTOR, ASSETS, SCENES }
+enum class EditorTool { PAN, MOVE, ROTATE, SCALE }
 enum class SaveStatus { SAVED, SAVING, ERROR }
 
 data class StudioState(
@@ -43,7 +46,13 @@ data class StudioState(
     val selectedId: String? = null,
     val panel: EditorPanel = EditorPanel.HIERARCHY,
     val playing: Boolean = false,
+    val paused: Boolean = false,
     val playScene: GameScene? = null,
+    val fps: Int = 0,
+    val console: List<EngineLog> = emptyList(),
+    val showColliders: Boolean = false,
+    val tool: EditorTool = EditorTool.MOVE,
+    val editingScriptId: String? = null,
     val busy: Boolean = false,
     val saveStatus: SaveStatus = SaveStatus.SAVED,
     val notice: String? = null,
@@ -176,11 +185,74 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun createScript() {
+        val project = _state.value.project ?: return
+        if (project.scripts.size >= 64) { notice("Script limit reached"); return }
+        val script = ScriptAsset(
+            id = ProjectFactory.id(), name = "Script ${project.scripts.size + 1}",
+            source = "on start\n  log \"Ready\"\nend\n\non update\n  # move 80 * dt, 0\nend\n\non tap\n  impulse 0, -470\nend\n",
+        )
+        editProject { it.copy(scripts = it.scripts + script) }
+        _state.update { it.copy(editingScriptId = script.id) }
+    }
+
+    fun saveScript(id: String, source: String, name: String, folder: String) {
+        if (source.length > 16_000 || name.isBlank() || name.length > 100 || !validFolder(folder)) {
+            notice("Check script name, folder and 16 KB source limit")
+            return
+        }
+        editProject { project -> project.copy(scripts = project.scripts.map { script ->
+            if (script.id == id) script.copy(name = name.trim(), folder = folder.trim(), source = source) else script
+        }) }
+        _state.update { it.copy(editingScriptId = null) }
+        appendLog(EngineLog(EngineLogLevel.INFO, "Saved $name"))
+    }
+
+    fun attachScript(entityId: String, scriptId: String?) {
+        if (scriptId != null && _state.value.project?.scripts?.none { it.id == scriptId } != false) return
+        editEntity(entityId) { it.copy(scriptId = scriptId) }
+    }
+
+    fun deleteScript(id: String) {
+        val project = _state.value.project ?: return
+        if (project.scenes.any { scene -> scene.entities.any { it.scriptId == id } }) {
+            notice("Detach this script from all objects before deleting it")
+            return
+        }
+        editProject { it.copy(scripts = it.scripts.filterNot { script -> script.id == id }) }
+        if (_state.value.editingScriptId == id) closeScriptEditor()
+    }
+
+    fun renameAsset(id: String, name: String, folder: String) {
+        if (name.isBlank() || name.length > 160 || !validFolder(folder)) { notice("Invalid asset name or folder"); return }
+        editProject { it.copy(assets = it.assets.map { asset ->
+            if (asset.id == id) asset.copy(name = name.trim(), folder = folder.trim()) else asset
+        }) }
+    }
+
+    fun removeAsset(id: String) {
+        val project = _state.value.project ?: return
+        if (project.scenes.any { scene -> scene.entities.any { it.visual.assetId == id && it.visual.type == VisualType.IMAGE } }) {
+            notice("Remove all sprites using this image before deleting it")
+            return
+        }
+        // The underlying file is retained until project deletion so Undo can restore the asset.
+        editProject { it.copy(assets = it.assets.filterNot { asset -> asset.id == id }) }
+    }
+
     fun assetFile(projectId: String, assetId: String) = store.assetFile(projectId, assetId)
+
+    private fun validFolder(folder: String): Boolean = folder.length in 1..100 &&
+        folder.split('/').all { it.length in 1..32 && it.matches(Regex("[A-Za-z0-9 _-]+")) && it.isNotBlank() }
 
     fun saveNow() { _state.value.project?.let { queueSave(it, immediate = true) } }
     fun dismissNotice() { _state.update { it.copy(notice = null) } }
     fun showPanel(panel: EditorPanel) { _state.update { it.copy(panel = panel) } }
+    fun setTool(tool: EditorTool) { _state.update { it.copy(tool = tool) } }
+    fun toggleColliders() { _state.update { it.copy(showColliders = !it.showColliders) } }
+    fun clearConsole() { _state.update { it.copy(console = emptyList()) } }
+    fun openScriptEditor(id: String) { _state.update { it.copy(editingScriptId = id) } }
+    fun closeScriptEditor() { _state.update { it.copy(editingScriptId = null) } }
     fun select(id: String?) { _state.update { it.copy(selectedId = id, panel = if (id == null) it.panel else EditorPanel.INSPECTOR) } }
 
     fun renameProject(name: String) {
@@ -217,6 +289,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setBackground(color: Int) { editScene { it.copy(background = color) } }
     fun setGravity(x: Float, y: Float) { editScene { it.copy(gravity = com.sengine.core.Vec2(x, y)) } }
+    fun setGameSize(width: Float, height: Float) { editScene { it.copy(gameWidth = width, gameHeight = height) } }
 
     fun addEntity(type: VisualType, assetId: String? = null) {
         val scene = _state.value.project?.activeScene() ?: return
@@ -264,6 +337,29 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         gestureRecorded = true
     }
 
+    fun rotateEntity(id: String, degrees: Float) {
+        if (degrees == 0f) return
+        editScene(record = !gestureRecorded, persist = false) { scene ->
+            scene.updateEntity(id) { entity ->
+                entity.copy(transform = entity.transform.copy(rotation = entity.transform.rotation + degrees))
+            }
+        }
+        gestureRecorded = true
+    }
+
+    fun resizeEntity(id: String, delta: Float) {
+        if (delta == 0f) return
+        editScene(record = !gestureRecorded, persist = false) { scene ->
+            scene.updateEntity(id) { entity ->
+                entity.copy(transform = entity.transform.copy(
+                    width = (entity.transform.width + delta).coerceIn(1f, 10000f),
+                    height = (entity.transform.height + delta).coerceIn(1f, 10000f),
+                ))
+            }
+        }
+        gestureRecorded = true
+    }
+
     fun gestureCamera(camera: SceneCamera) {
         editScene(record = !gestureRecorded, persist = false) {
             it.copy(camera = camera.copy(
@@ -301,39 +397,104 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun play() {
-        val scene = _state.value.project?.activeScene() ?: return
+        val project = _state.value.project ?: return
         if (_state.value.playing) return
-        runner = WorldRunner(scene)
-        _state.update { it.copy(playing = true, playScene = scene) }
+        val world = try { WorldRunner(project.activeScene(), project.scripts) }
+        catch (error: Exception) {
+            report(error)
+            appendLog(EngineLog(EngineLogLevel.ERROR, "Could not start physics world: ${error.message}"))
+            return
+        }
+        runner = world
+        _state.update { it.copy(playing = true, paused = false, playScene = world.scene, fps = 0) }
+        appendLog(EngineLog(EngineLogLevel.INFO, "Play started • ${world.bodyCount} physics bodies"))
+        collectLogs(world)
         playJob = viewModelScope.launch {
             var last = System.nanoTime()
+            var sampleStart = last
+            var frames = 0
             while (isActive && _state.value.playing) {
                 delay(16)
                 val now = System.nanoTime()
-                val next = runner?.advance((now - last) / 1_000_000_000f) ?: break
+                val delta = (now - last) / 1_000_000_000f
                 last = now
-                _state.update { if (it.playing) it.copy(playScene = next) else it }
+                val active = runner ?: break
+                if (!_state.value.paused) {
+                    try {
+                        val next = active.advance(delta)
+                        frames++
+                        _state.update { if (it.playing) it.copy(playScene = next) else it }
+                        collectLogs(active)
+                    } catch (error: Exception) {
+                        appendLog(EngineLog(EngineLogLevel.ERROR, "Runtime stopped: ${error.message}"))
+                        stop()
+                        break
+                    }
+                }
+                if (now - sampleStart >= 1_000_000_000L) {
+                    _state.update { it.copy(fps = if (it.paused) 0 else frames) }
+                    frames = 0
+                    sampleStart = now
+                }
             }
         }
     }
 
+    fun togglePause() {
+        if (!_state.value.playing) return
+        _state.update { it.copy(paused = !it.paused, fps = if (it.paused) it.fps else 0) }
+        appendLog(EngineLog(EngineLogLevel.INFO, if (_state.value.paused) "Preview paused" else "Preview resumed"))
+    }
+
+    fun stepFrame() {
+        if (!_state.value.playing || !_state.value.paused) return
+        val world = runner ?: return
+        try {
+            val next = world.stepOnce()
+            _state.update { it.copy(playScene = next) }
+            collectLogs(world)
+        } catch (error: Exception) {
+            appendLog(EngineLog(EngineLogLevel.ERROR, "Step failed: ${error.message}"))
+            stop()
+        }
+    }
+
     fun stop() {
+        val wasPlaying = _state.value.playing
         playJob?.cancel()
         playJob = null
         runner = null
-        _state.update { it.copy(playing = false, playScene = null) }
+        _state.update { it.copy(playing = false, paused = false, playScene = null, fps = 0) }
+        if (wasPlaying) appendLog(EngineLog(EngineLogLevel.INFO, "Play stopped • edit scene restored"))
     }
 
     fun playTap(x: Float, y: Float) {
+        if (_state.value.paused) return
         val world = runner ?: return
-        if (world.tap(x, y)) _state.update { it.copy(playScene = world.scene) }
+        if (world.tap(x, y)) {
+            _state.update { it.copy(playScene = world.scene) }
+            collectLogs(world)
+        }
+    }
+
+    private fun appendLog(message: EngineLog) {
+        _state.update { it.copy(console = (it.console + message).takeLast(500)) }
+    }
+
+    private fun collectLogs(world: WorldRunner) {
+        val logs = world.drainLogs()
+        if (logs.isNotEmpty()) _state.update { it.copy(console = (it.console + logs).takeLast(500)) }
     }
 
     private fun enterProject(project: GameProject) {
         stop()
         undo.clear()
         redo.clear()
-        _state.update { it.copy(project = project, selectedId = null, panel = EditorPanel.HIERARCHY, canUndo = false, canRedo = false, saveStatus = SaveStatus.SAVED) }
+        _state.update { it.copy(
+            project = project, selectedId = null, panel = EditorPanel.HIERARCHY,
+            editingScriptId = null, console = emptyList(), tool = EditorTool.MOVE,
+            canUndo = false, canRedo = false, saveStatus = SaveStatus.SAVED,
+        ) }
     }
 
     private fun editScene(record: Boolean = true, persist: Boolean = true, change: (GameScene) -> GameScene) {

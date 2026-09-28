@@ -44,6 +44,7 @@ object ProjectCodec {
             require(safeId.matches(scene.id) && scene.name.length <= 100) { "Invalid scene" }
             require(scene.camera.x.isPosition() && scene.camera.y.isPosition())
             require(scene.camera.zoom.isFinite() && scene.camera.zoom in 0.2f..4f)
+            require(scene.gameWidth in 100f..4000f && scene.gameHeight in 100f..4000f)
             require(scene.gravity.x in -2000f..2000f && scene.gravity.y in -2000f..2000f)
             require(scene.entities.size <= 2000) { "Scene has too many objects" }
             require(scene.entities.map { it.id }.distinct().size == scene.entities.size)
