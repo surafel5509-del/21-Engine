@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b101b">
+  <title>Made with S Engine</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="game-shell">
+    <header class="topbar">
+      <div class="brand"><span class="mark">S</span><span>S ENGINE <small>PLAYER</small></span></div>
+      <div id="game-title" class="game-title"></div>
+      <button id="restart" type="button" aria-label="Restart scene" title="Restart scene">↻ <span>Restart</span></button>
+    </header>
+    <section class="stage" aria-label="Playable game scene">
+      <canvas id="game" aria-label="Game canvas. Tap a dynamic object to make it jump."></canvas>
+      <div class="scene-label"><span class="live-dot"></span><span id="scene-name"></span></div>
+      <div class="hint">Tap a dynamic object to jump</div>
+    </section>
+    <footer class="bottombar">
+      <span id="scene-count"></span>
+      <div class="scene-controls">
+        <button id="previous" type="button" aria-label="Previous scene">←</button>
+        <button id="next" type="button" aria-label="Next scene">→</button>
+      </div>
+    </footer>
+  </main>
+  <script id="project-data" type="application/json">__SENGINE_PROJECT_DATA__</script>
+  <script src="runtime.js"></script>
+</body>
+</html>

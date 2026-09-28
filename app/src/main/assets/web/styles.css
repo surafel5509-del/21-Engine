@@ -1,0 +1,22 @@
+:root { color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0b101b; color: #f4f5ff; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.game-shell { display: flex; flex-direction: column; height: 100dvh; min-height: 320px; max-width: 1440px; margin: auto; border-inline: 1px solid #29354a; }
+.topbar { display: flex; align-items: center; gap: 20px; min-height: 68px; padding: 10px 20px; background: #131b2b; border-bottom: 1px solid #29354a; }
+.brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; font-size: 13px; font-weight: 800; letter-spacing: .13em; }
+.brand small { color: #92a1ba; font-size: 10px; font-weight: 600; }
+.mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #6259af; font-size: 20px; letter-spacing: 0; }
+.game-title { flex: 1; min-width: 0; text-align: center; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button { background: #1b2639; border: 1px solid #34425a; border-radius: 10px; padding: 9px 14px; }
+button:hover, button:focus-visible { background: #30405c; outline-color: #ad9bff; }
+.stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+canvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+.scene-label, .hint { position: absolute; border-radius: 9px; background: #0b101bd9; color: #c2cae0; padding: 7px 11px; font-size: 11px; pointer-events: none; }
+.scene-label { top: 14px; left: 14px; display: flex; align-items: center; gap: 7px; text-transform: uppercase; font-weight: 700; letter-spacing: .1em; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #58dbc5; box-shadow: 0 0 10px #58dbc5; }
+.hint { bottom: 13px; left: 13px; }
+.bottombar { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 8px 16px; background: #131b2b; border-top: 1px solid #29354a; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #92a1ba; }
+.scene-controls { display: flex; gap: 6px; }
+.scene-controls button { min-width: 40px; padding: 7px 12px; font-size: 18px; }
+@media (max-width: 500px) { .topbar { gap: 9px; padding: 8px 12px; } .brand small, #restart span { display: none; } .game-title { font-size: 13px; } #restart { padding: 7px 11px; } }

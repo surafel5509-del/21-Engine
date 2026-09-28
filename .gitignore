@@ -1,46 +1,27 @@
-## Based on default libGDX project settings.
-
-## Java
-*.class
-*.war
-*.ear
-hs_err_pid*
-
-## Android Studio, IntelliJ, Android
-android/libs/armeabi/
-android/libs/armeabi-v7a/
-android/libs/x86/
-android/gen/
+# Android Studio / Gradle
+.gradle/
+**/build/
 .idea/
-*.ipr
-*.iws
 *.iml
-*.so
-out/
-com_crashlytics_export_strings.xml
-
-## Eclipse
-.classpath
-.project
-.metadata
-**/bin/
-tmp/
-*.tmp
-*.bak
-*.swp
-*~.nib
 local.properties
-.settings/
-.loadpath
-.externalToolBuilders/
-*.launch
+.cxx/
+.externalNativeBuild/
 
-## Gradle
-.gradle
-gradle-app.setting
-build/
+# Android packages and signing material
+*.apk
+*.sengine
+*.aab
+*.apks
+*.jks
+*.keystore
+*.hprof
 
-## OS-specific, others
+# Python test caches
+__pycache__/
+*.pyc
+
+# OS / editors
 .DS_Store
-TODO
-
+*.swp
+*.swo
+*.tmp
