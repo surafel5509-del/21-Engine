@@ -40,6 +40,14 @@ object ProjectCodec {
         }
         val scriptIds = project.scripts.mapTo(mutableSetOf()) { it.id }
         val assetIds = project.assets.mapTo(mutableSetOf()) { it.id }
+        require(project.prefabs.size <= 128) { "Too many prefabs" }
+        require(project.prefabs.map { it.id }.distinct().size == project.prefabs.size) { "Duplicate prefab IDs" }
+        val prefabIds = project.prefabs.mapTo(mutableSetOf()) { it.id }
+        project.prefabs.forEach { prefab ->
+            require(safeId.matches(prefab.id) && prefab.name.length in 1..100 && prefab.folder.isFolder()) { "Invalid prefab" }
+            require(prefab.template.prefabId == null) { "Prefab templates cannot reference other prefabs" }
+            validateEntity(prefab.template, assetIds, scriptIds, prefabIds)
+        }
         project.scenes.forEach { scene ->
             require(safeId.matches(scene.id) && scene.name.length <= 100) { "Invalid scene" }
             require(scene.camera.x.isPosition() && scene.camera.y.isPosition())
@@ -48,30 +56,33 @@ object ProjectCodec {
             require(scene.gravity.x in -2000f..2000f && scene.gravity.y in -2000f..2000f)
             require(scene.entities.size <= 2000) { "Scene has too many objects" }
             require(scene.entities.map { it.id }.distinct().size == scene.entities.size)
-            scene.entities.forEach { entity ->
-                require(safeId.matches(entity.id) && entity.name.length <= 100) { "Invalid object" }
-                val t = entity.transform
-                require(t.x.isPosition() && t.y.isPosition() && t.rotation.isFinite())
-                require(t.width.isFinite() && t.width in 1f..10000f)
-                require(t.height.isFinite() && t.height in 1f..10000f)
-                require(entity.visual.text.length <= 500)
-                if (entity.visual.type == VisualType.IMAGE) {
-                    val assetId = entity.visual.assetId
-                    require(assetId != null && assetId in assetIds) { "Sprite asset is missing" }
-                }
-                entity.scriptId?.let { require(it in scriptIds) { "Object script is missing" } }
-                entity.physics?.let { body ->
-                    require(body.velocity.x in -5000f..5000f && body.velocity.y in -5000f..5000f)
-                    require(body.gravityScale.isFinite() && body.gravityScale in 0f..5f)
-                    require(body.bounce.isFinite() && body.bounce in 0f..1f)
-                    require(body.friction.isFinite() && body.friction in 0f..1f)
-                    require(body.density.isFinite() && body.density in 0.01f..100f)
-                    require(body.linearDamping.isFinite() && body.linearDamping in 0f..20f)
-                }
-                require(entity.motion.speed.isFinite() && entity.motion.speed in 0f..6f)
-                require(entity.motion.amplitude.isFinite() && entity.motion.amplitude in 0f..2000f)
-            }
+            scene.entities.forEach { validateEntity(it, assetIds, scriptIds, prefabIds) }
         }
+    }
+
+    private fun validateEntity(entity: Entity, assets: Set<String>, scripts: Set<String>, prefabs: Set<String>) {
+        require(safeId.matches(entity.id) && entity.name.length <= 100) { "Invalid object" }
+        val t = entity.transform
+        require(t.x.isPosition() && t.y.isPosition() && t.rotation.isFinite())
+        require(t.width.isFinite() && t.width in 1f..10000f)
+        require(t.height.isFinite() && t.height in 1f..10000f)
+        require(entity.visual.text.length <= 500)
+        if (entity.visual.type == VisualType.IMAGE) {
+            val assetId = entity.visual.assetId
+            require(assetId != null && assetId in assets) { "Sprite asset is missing" }
+        }
+        entity.scriptId?.let { require(it in scripts) { "Object script is missing" } }
+        entity.prefabId?.let { require(it in prefabs) { "Object prefab is missing" } }
+        entity.physics?.let { body ->
+            require(body.velocity.x in -5000f..5000f && body.velocity.y in -5000f..5000f)
+            require(body.gravityScale.isFinite() && body.gravityScale in 0f..5f)
+            require(body.bounce.isFinite() && body.bounce in 0f..1f)
+            require(body.friction.isFinite() && body.friction in 0f..1f)
+            require(body.density.isFinite() && body.density in 0.01f..100f)
+            require(body.linearDamping.isFinite() && body.linearDamping in 0f..20f)
+        }
+        require(entity.motion.speed.isFinite() && entity.motion.speed in 0f..6f)
+        require(entity.motion.amplitude.isFinite() && entity.motion.amplitude in 0f..2000f)
     }
 
     private fun Float.isPosition(): Boolean = isFinite() && this in -1_000_000f..1_000_000f

@@ -4,11 +4,12 @@ S Engine is a **native Android 2D game studio** with a landscape editing workspa
 
 ## Editor and runtime
 
-- **Landscape studio:** hierarchy on the left, touch-operated scene viewport in the center, inspector on the right; collapsible Console, Assets, Scripts, and Build dock. Move, rotate, resize, pan, zoom, layer/reorder, duplicate, lock/hide, undo/redo, and edit scenes without changing the play-mode copy.
-- **Projects and assets:** multiple scenes with independently configured camera, gravity, background and output dimensions. Import PNG/JPEG/WebP through Android's file picker, reuse sprites across scenes, organize image/script assets in named folders, and save projects atomically in private app storage. Portable `.sengine` exports include scenes, scripts, and referenced images.
+- **Unity-like landscape studio:** functional File/Edit/GameObject/Window menus; searchable hierarchy on the left; switchable Scene and Game views in the center; component inspector on the right; resizable side panes and a collapsible/resizable Project, Console, Assets, Scripts and Build dock. Move, rotate, resize, pan, zoom, snap to configurable world-unit grids, frame selection, layer/reorder, duplicate, lock/hide and undo/redo. Edit scenes independently from the play-mode copy.
+- **Projects and assets:** multiple scenes with independent camera, gravity, background and output dimensions. Import PNG/JPEG/WebP through Android's file picker, reuse sprites across scenes, organize assets in named folders and browse scenes/textures/scripts/prefabs in a Project window. Save atomically in private app storage. Portable `.sengine` exports contain scenes, scripts, prefab definitions and referenced images.
+- **Reusable prefabs:** create a single-object prefab from a selected object, place linked instances, apply component edits across instances, revert one instance, or unpack/delete the source without destroying placed objects. Instances keep independent names, locks and world positions. Prefabs are not nested or multi-object.
 - **Rendering:** a shared Android Canvas renderer for the editor and standalone player, with boxes, circles, text, sprites, selection handles, optional grid/collider overlays, and a letterboxed game frame in play mode. The player and editor load the same project data and use the same renderer and physics runtime.
 - **Physics 2D:** JBox2D fixed-step 60 Hz simulation; static, dynamic and kinematic bodies, rotated box/circle colliders, friction, restitution, density, gravity scale, damping, sensors, contacts and collision-event logs. Pause/step and collider outlines aid debugging.
-- **S Script:** editable *sandboxed event language* attached to objects (`on start`, `on update`, `on tap`, `on collision`). Variables, arithmetic, conditions, movement, impulses, rotation and logging are supported, with bounded execution and parse/runtime diagnostics in the console. This is **not** arbitrary Kotlin, C# or Java execution.
+- **S Script:** editable *sandboxed event language* attached to objects (`on start`, `on update`, `on tap`, `on collision`). Variables, arithmetic, conditions, movement, impulses, rotation, scene changes by name/ID and logging are supported, with bounded execution and parse/runtime diagnostics in the console. This is **not** arbitrary Kotlin, C# or Java execution.
 - **Build/export:** export a `.sengine` project package, an offline playable HTML5 Canvas game ZIP, or build a **separately installable Android game APK** from the package using the included Gradle-backed builder on a development computer/CI runner. APKs contain the player's game data, not the editor.
 
 ## Build the studio
@@ -51,9 +52,9 @@ A build computer or CI runner with the Android toolchain is necessary; **the edi
 
 ## Everyday workflow
 
-1. Create/open a project from the dashboard, then select an object in the hierarchy or scene.
-2. Use the inspector to configure transforms, appearance, body/collider properties and motion; import textures in **Assets** or create an event script in **Scripts** and attach it to an object.
-3. Press **Play** to simulate in isolation. Check the Console dock for collisions, scripts and errors; pause/step or stop to return to the unchanged edit scene.
+1. Create/open a project from the dashboard. Use the **Scene** tab to edit or **Game** to preview the output frame. Drag the vertical dividers or dock handle to resize windows; open **Project** to browse project files.
+2. Select an object in the searchable hierarchy or scene; use the inspector to configure transforms, appearance, body/collider properties and motion. Enable grid snapping in the toolbar and set a step in the Scene toolbar. Import textures in **Assets**, create a script in **Scripts**, or create a reusable prefab from the selected object in the inspector or GameObject menu.
+3. Press **Play** to simulate in isolation. Check the Console dock for collisions, scripts and errors; pause/step or stop to return to the unchanged edit scene. To connect scenes in a game, attach an S Script to a button/door object with `on tap`, then `scene Name of Next Scene` and `end`.
 4. Export `.sengine` backups regularly. For a browser-only game, export the web ZIP and open `index.html` after unzipping. For Android, use the builder above.
 
 Projects live in the app's private files directory and **Android backup is disabled**. Export before uninstalling/clearing app data. Importing a `.sengine` archive creates a separate local copy. The HTML5 runtime is a distinct, simpler JavaScript implementation and does **not** yet have complete physics parity with the Android JBox2D player.
@@ -71,4 +72,4 @@ web/tests/                     Node tests for the separate offline web player
 .github/workflows/android.yml  Editor/game build, tests and APK artifacts
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for project format, runtime semantics and security boundaries. S Engine currently targets **2D**; it does not claim Unity parity (no 3D, audio pipeline, tilemaps, prefabs, animation timeline, networking, joints, arbitrary-language plugins or device-side APK compilation).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for project format, runtime semantics and security boundaries. S Engine currently targets **2D**. The workspace follows Unity's familiar layout but does not claim Unity feature or file-format parity: it has no 3D, audio pipeline, tilemaps, nested prefabs, animation timeline, networking, joints, arbitrary-language plugins or device-side APK compilation.

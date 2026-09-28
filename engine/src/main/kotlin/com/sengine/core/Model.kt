@@ -70,6 +70,8 @@ data class Entity(
     val locked: Boolean = false,
     /** A sandboxed S Script asset ID, evaluated only in play mode. */
     val scriptId: String? = null,
+    /** Optional source prefab; the transform remains in world coordinates. */
+    val prefabId: String? = null,
 )
 
 @Serializable
@@ -105,6 +107,15 @@ data class ScriptAsset(
 )
 
 @Serializable
+data class PrefabAsset(
+    val id: String,
+    val name: String,
+    val folder: String = "Prefabs",
+    /** An unlinked single-object template at the origin. */
+    val template: Entity,
+)
+
+@Serializable
 data class GameProject(
     val formatVersion: Int = 1,
     val id: String,
@@ -115,6 +126,7 @@ data class GameProject(
     val scripts: List<ScriptAsset> = emptyList(),
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    val prefabs: List<PrefabAsset> = emptyList(),
 ) {
     fun activeScene(): GameScene = scenes.first { it.id == activeSceneId }
 

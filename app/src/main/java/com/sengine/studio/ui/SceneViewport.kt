@@ -23,6 +23,7 @@ fun SceneCanvas(
     projectId: String,
     selectedId: String?,
     playing: Boolean,
+    gameView: Boolean,
     tool: EditorTool,
     showColliders: Boolean,
     resolveAsset: (String, String) -> File,
@@ -40,7 +41,7 @@ fun SceneCanvas(
         modifier = modifier,
         factory = { context -> SceneViewport(context) },
         update = { view ->
-            view.bind(scene, projectId, selectedId, playing, tool, showColliders, resolveAsset)
+            view.bind(scene, projectId, selectedId, playing, gameView, tool, showColliders, resolveAsset)
             view.onSelect = onSelect
             view.onDrag = onDrag
             view.onRotate = onRotate
@@ -60,6 +61,7 @@ private class SceneViewport(context: Context) : View(context) {
     private var projectId = ""
     private var selectedId: String? = null
     private var playing = false
+    private var gameView = false
     private var tool = EditorTool.MOVE
     private var showColliders = false
     private var resolveAsset: (String, String) -> File = { _, _ -> File("") }
@@ -81,7 +83,7 @@ private class SceneViewport(context: Context) : View(context) {
     init { contentDescription = "Scene viewport. Drag an object to edit; drag empty space to pan; pinch to zoom." }
 
     fun bind(
-        next: GameScene, nextProjectId: String, selection: String?, isPlaying: Boolean,
+        next: GameScene, nextProjectId: String, selection: String?, isPlaying: Boolean, asGameView: Boolean,
         selectedTool: EditorTool, debugColliders: Boolean, assetResolver: (String, String) -> File,
     ) {
         if (nextProjectId != projectId) painter.clear()
@@ -89,6 +91,7 @@ private class SceneViewport(context: Context) : View(context) {
         scene = next
         selectedId = selection
         playing = isPlaying
+        gameView = asGameView
         tool = selectedTool
         showColliders = debugColliders
         resolveAsset = assetResolver
@@ -105,11 +108,11 @@ private class SceneViewport(context: Context) : View(context) {
         painter.draw(
             canvas, scene, width, height, worldScale(),
             imageSource = { id -> resolveAsset(projectId, id).takeIf { it.isFile }?.inputStream() },
-            selectedId = if (playing) null else selectedId,
-            showGrid = !playing,
-            showFrame = !playing,
-            showColliders = showColliders,
-            clipToFrame = playing,
+            selectedId = if (playing || gameView) null else selectedId,
+            showGrid = !gameView,
+            showFrame = !gameView,
+            showColliders = showColliders && !gameView,
+            clipToFrame = gameView,
         )
     }
 
@@ -124,6 +127,8 @@ private class SceneViewport(context: Context) : View(context) {
                 val y = screenY(event.y)
                 if (playing) {
                     onPlayTap(x, y)
+                } else if (gameView) {
+                    // An edit-mode Game view is a read-only preview until Play is pressed.
                 } else {
                     if (tool != EditorTool.PAN) {
                         val hit = scene.hitTest(x, y, includeLocked = true)
@@ -137,7 +142,7 @@ private class SceneViewport(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                if (!playing && event.pointerCount >= 2) {
+                if (!playing && !gameView && event.pointerCount >= 2) {
                     draggedId = null
                     pinchDistance = distance(event)
                     pinchX = (event.getX(0) + event.getX(1)) / 2f
@@ -146,7 +151,7 @@ private class SceneViewport(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (playing) return true
+                if (playing || gameView) return true
                 if (event.pointerCount >= 2) {
                     val separation = distance(event)
                     val midX = (event.getX(0) + event.getX(1)) / 2f
@@ -221,7 +226,7 @@ private class SceneViewport(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!playing) onGestureEnd()
+                if (!playing && !gameView) onGestureEnd()
                 draggedId = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 performClick()
@@ -235,7 +240,7 @@ private class SceneViewport(context: Context) : View(context) {
     private fun updateCamera(camera: SceneCamera) { scene = scene.copy(camera = camera); onCamera(camera); invalidate() }
     private fun screenX(x: Float): Float = scene.camera.x + (x - width / 2f) / worldScale()
     private fun screenY(y: Float): Float = scene.camera.y + (y - height / 2f) / worldScale()
-    private fun worldScale(): Float = if (playing) {
+    private fun worldScale(): Float = if (gameView) {
         (min(width.toFloat() / scene.gameWidth, height.toFloat() / scene.gameHeight) * scene.camera.zoom)
             .coerceAtLeast(.01f)
     } else painter.density * scene.camera.zoom

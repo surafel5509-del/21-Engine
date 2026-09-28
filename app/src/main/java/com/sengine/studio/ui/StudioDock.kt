@@ -63,15 +63,15 @@ import com.sengine.studio.StudioState
 import com.sengine.studio.StudioViewModel
 import java.util.Locale
 
-private enum class DockTab { CONSOLE, ASSETS, SCRIPTS, BUILD }
+internal enum class DockTab { PROJECT, CONSOLE, ASSETS, SCRIPTS, BUILD }
 
 @Composable
-fun DockPanel(
+internal fun DockPanel(
     state: StudioState, vm: StudioViewModel, expanded: Boolean, onToggle: () -> Unit,
+    tab: DockTab, onTabChange: (DockTab) -> Unit,
     onPickImage: () -> Unit, onExportPackage: (String) -> Unit, onExportWeb: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var tab by rememberSaveable { mutableStateOf(DockTab.CONSOLE) }
     Column(modifier.fillMaxWidth().background(StudioColors.surface).border(1.dp, StudioColors.border)) {
         Row(Modifier.fillMaxWidth().height(31.dp).background(StudioColors.raised).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
@@ -80,7 +80,7 @@ fun DockPanel(
                         item.name + if (item == DockTab.CONSOLE && state.console.isNotEmpty()) " ${state.console.size}" else "",
                         style = MaterialTheme.typography.labelMedium,
                         color = if (tab == item) StudioColors.violet else StudioColors.muted,
-                        modifier = Modifier.clickable { tab = item; if (!expanded) onToggle() }
+                        modifier = Modifier.clickable { onTabChange(item); if (!expanded) onToggle() }
                             .padding(horizontal = 11.dp, vertical = 7.dp),
                     )
                 }
@@ -95,6 +95,7 @@ fun DockPanel(
         if (expanded) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
+                    DockTab.PROJECT -> ProjectBrowser(state, vm, onPickImage)
                     DockTab.CONSOLE -> ConsoleContents(state, vm)
                     DockTab.ASSETS -> AssetContents(state, vm, onPickImage)
                     DockTab.SCRIPTS -> ScriptContents(state, vm)

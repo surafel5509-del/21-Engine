@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -76,9 +79,29 @@ fun InspectorPanel(state: StudioState, vm: StudioViewModel) {
         return
     }
     var confirmDelete by remember(entity.id) { mutableStateOf(false) }
+    var addComponent by remember(entity.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 17.dp, vertical = 15.dp)) {
         SectionLabel("Inspector", entity.visual.type.name)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
+        Box {
+            TextButton(onClick = { addComponent = true }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(16.dp))
+                Text("Add component")
+            }
+            DropdownMenu(expanded = addComponent, onDismissRequest = { addComponent = false }) {
+                DropdownMenuItem(text = { Text("Physics 2D body") }, onClick = {
+                    addComponent = false
+                    vm.editEntity(entity.id) { it.copy(physics = it.physics ?: PhysicsBody(BodyType.DYNAMIC)) }
+                }, enabled = entity.physics == null)
+                DropdownMenuItem(text = { Text("Motion behavior") }, onClick = {
+                    addComponent = false
+                    vm.editEntity(entity.id) { it.copy(motion = it.motion.copy(type = MotionType.SPIN)) }
+                }, enabled = entity.motion.type == MotionType.NONE)
+                DropdownMenuItem(text = { Text("S Script asset") }, onClick = { addComponent = false; vm.createScriptForEntity(entity.id) },
+                    enabled = entity.scriptId == null)
+            }
+        }
+        Spacer(Modifier.height(7.dp))
         CommitTextField("Object name", entity.name, { name -> vm.editEntity(entity.id) { it.copy(name = name.take(100)) } })
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             ToolIcon(if (entity.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, "Toggle visibility", { vm.editEntity(entity.id) { it.copy(visible = !it.visible) } })
@@ -238,6 +261,25 @@ fun InspectorPanel(state: StudioState, vm: StudioViewModel) {
             }
         }
         TextButton(onClick = vm::createScript) { Text("+ New script asset") }
+        Spacer(Modifier.height(15.dp))
+        HorizontalDivider(color = StudioColors.border)
+        Spacer(Modifier.height(12.dp))
+        SectionLabel("Prefab", if (entity.prefabId == null) "UNLINKED" else "LINKED INSTANCE")
+        val prefab = project.prefabs.firstOrNull { it.id == entity.prefabId }
+        if (prefab != null) {
+            Text(prefab.name, style = MaterialTheme.typography.titleMedium, color = StudioColors.blue)
+            Text("Apply shares components across instances. Revert keeps this object's position.",
+                style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                TextButton(onClick = { vm.applySelectedPrefab(entity.id) }) { Text("Apply") }
+                TextButton(onClick = { vm.revertSelectedPrefab(entity.id) }) { Text("Revert") }
+                TextButton(onClick = { vm.unpackPrefab(entity.id) }) { Text("Unpack") }
+            }
+        } else {
+            Text("Save this object's components as a reusable project asset.",
+                style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+            TextButton(onClick = { vm.createPrefab(entity.id) }) { Text("+ Create prefab") }
+        }
         Spacer(Modifier.height(24.dp))
     }
     if (confirmDelete) {

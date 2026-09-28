@@ -3,6 +3,7 @@ package com.sengine.player
 import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.pm.ApplicationInfo
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -69,6 +70,8 @@ class GameActivity : Activity() {
 
 private class GameView(context: Context, private val project: GameProject) : View(context) {
     private val painter = ScenePainter(context)
+    // Navigation HUD is a development aid only. Shipped release games draw no engine chrome.
+    private val debugOverlay = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     private val hud = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 12f * resources.displayMetrics.scaledDensity
@@ -93,6 +96,7 @@ private class GameView(context: Context, private val project: GameProject) : Vie
             lastFrame = now
         }
         runner.drainLogs().forEach { log -> Log.i("SEnginePlayer", "${log.level}: ${log.message}") }
+        followSceneRequest()
         val scene = runner.scene
         val scale = pixelsPerWorldUnit()
         painter.draw(
@@ -100,33 +104,52 @@ private class GameView(context: Context, private val project: GameProject) : Vie
             imageSource = { id -> try { context.assets.open("game/assets/$id.img") } catch (_: IOException) { null } },
             clipToFrame = true,
         )
-        hud.setShadowLayer(3f, 0f, 2f, Color.BLACK)
-        canvas.drawText(project.name.take(40), 12f * painter.density, 22f * painter.density, hud)
-        if (project.scenes.size > 1) {
-            hud.textAlign = Paint.Align.RIGHT
-            canvas.drawText("SCENE ${sceneIndex + 1}/${project.scenes.size}   NEXT ▶", width - 13f * painter.density, 22f * painter.density, hud)
-            hud.textAlign = Paint.Align.LEFT
+        if (debugOverlay) {
+            hud.setShadowLayer(3f, 0f, 2f, Color.BLACK)
+            canvas.drawText(project.name.take(40), 12f * painter.density, 22f * painter.density, hud)
+            if (project.scenes.size > 1) {
+                hud.textAlign = Paint.Align.RIGHT
+                canvas.drawText("SCENE ${sceneIndex + 1}/${project.scenes.size}   NEXT ▶", width - 13f * painter.density, 22f * painter.density, hud)
+                hud.textAlign = Paint.Align.LEFT
+            }
         }
         if (running) postInvalidateOnAnimation()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked != MotionEvent.ACTION_DOWN) return true
-        if (project.scenes.size > 1 && event.y < 46f * painter.density && event.x > width * .64f) {
-            sceneIndex = (sceneIndex + 1) % project.scenes.size
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (debugOverlay && project.scenes.size > 1 && event.y < 46f * painter.density && event.x > width * .64f) {
+                    sceneIndex = (sceneIndex + 1) % project.scenes.size
+                    runner = WorldRunner(project.scenes[sceneIndex], project.scripts)
+                    lastFrame = System.nanoTime()
+                } else {
+                    val scene = runner.scene
+                    val factor = pixelsPerWorldUnit()
+                    runner.tap(
+                        scene.camera.x + (event.x - width / 2f) / factor,
+                        scene.camera.y + (event.y - height / 2f) / factor,
+                    )
+                    followSceneRequest()
+                }
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> performClick()
+        }
+        return true
+    }
+
+    private fun followSceneRequest() {
+        val reference = runner.consumeSceneRequest() ?: return
+        val nextIndex = project.scenes.indexOfFirst { it.id == reference }.takeIf { it >= 0 }
+            ?: project.scenes.indexOfFirst { it.name == reference }
+        if (nextIndex < 0) {
+            Log.w("SEnginePlayer", "Scene not found: $reference")
+        } else if (nextIndex != sceneIndex) {
+            sceneIndex = nextIndex
             runner = WorldRunner(project.scenes[sceneIndex], project.scripts)
             lastFrame = System.nanoTime()
-        } else {
-            val scene = runner.scene
-            val factor = pixelsPerWorldUnit()
-            runner.tap(
-                scene.camera.x + (event.x - width / 2f) / factor,
-                scene.camera.y + (event.y - height / 2f) / factor,
-            )
         }
-        invalidate()
-        performClick()
-        return true
     }
 
     override fun performClick(): Boolean { super.performClick(); return true }

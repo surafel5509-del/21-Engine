@@ -25,10 +25,13 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,15 +57,22 @@ import com.sengine.studio.StudioViewModel
 
 @Composable
 fun HierarchyPanel(state: StudioState, vm: StudioViewModel) {
-    val scene = state.project?.activeScene() ?: return
+    val scene = state.playScene ?: state.project?.activeScene() ?: return
+    var query by rememberSaveable(scene.id) { mutableStateOf("") }
+    val visible = scene.entities.asReversed().filter { entity ->
+        query.isBlank() || entity.name.contains(query, ignoreCase = true) ||
+            entity.visual.type.name.contains(query, ignoreCase = true)
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 12.dp, top = 13.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 SectionLabel("Objects", "${scene.entities.size}")
                 Text("Front to back · tap to inspect", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
             }
-            ToolIcon(Icons.Rounded.Add, "Add rectangle", { vm.addEntity(VisualType.BOX) }, highlighted = true)
+            ToolIcon(Icons.Rounded.Add, "Add rectangle", { vm.addEntity(VisualType.BOX) }, highlighted = true, enabled = !state.playing)
         }
+        OutlinedTextField(query, { query = it.take(80) }, label = { Text("Search hierarchy") },
+            singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp))
         Row(
             Modifier.fillMaxWidth().background(StudioColors.raised).clickable { vm.select(null) }
                 .padding(horizontal = 16.dp, vertical = 9.dp),
@@ -71,15 +82,16 @@ fun HierarchyPanel(state: StudioState, vm: StudioViewModel) {
             Spacer(Modifier.width(8.dp))
             Text("${scene.name}  /  Camera", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (scene.entities.isEmpty()) {
+        if (visible.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                Text("A fresh canvas.", style = MaterialTheme.typography.titleMedium)
+                Text(if (scene.entities.isEmpty()) "A fresh canvas." else "No matching objects", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(5.dp))
-                Text("Use + to add your first object, or open Assets to import a sprite.", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+                Text(if (scene.entities.isEmpty()) "Use + to add an object, or open Project to import a sprite."
+                    else "Try a different name or shape in hierarchy search.", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
             }
         } else {
             LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp)) {
-                items(scene.entities.asReversed(), key = { it.id }) { entity ->
+                items(visible, key = { it.id }) { entity ->
                     val selected = entity.id == state.selectedId
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 2.dp)
@@ -95,15 +107,29 @@ fun HierarchyPanel(state: StudioState, vm: StudioViewModel) {
                         }
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(entity.name.ifBlank { "Unnamed object" }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (entity.visible) StudioColors.text else StudioColors.muted)
+                            Text((if (entity.prefabId != null) "◇  " else "") + entity.name.ifBlank { "Unnamed object" },
+                                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                color = if (!entity.visible) StudioColors.muted else if (entity.prefabId != null) StudioColors.blue else StudioColors.text)
                             Text(entity.visual.type.name.lowercase().replaceFirstChar { it.uppercase() } +
                                 if (entity.scriptId != null) "  •  {} Script" else "",
                                 style = MaterialTheme.typography.bodySmall, color = StudioColors.muted, fontSize = 10.sp)
                         }
-                        Box(Modifier.size(28.dp).clickable { vm.editEntity(entity.id) { it.copy(visible = !it.visible) } }, contentAlignment = Alignment.Center) {
-                            Icon(if (entity.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                                if (entity.visible) "Hide ${entity.name}" else "Show ${entity.name}",
-                                tint = StudioColors.muted, modifier = Modifier.size(18.dp))
+                        if (!state.playing) {
+                            Box(Modifier.size(28.dp).clickable { vm.editEntity(entity.id) { it.copy(visible = !it.visible) } }, contentAlignment = Alignment.Center) {
+                                Icon(if (entity.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                    if (entity.visible) "Hide ${entity.name}" else "Show ${entity.name}",
+                                    tint = StudioColors.muted, modifier = Modifier.size(18.dp))
+                            }
+                            var menu by remember(entity.id) { mutableStateOf(false) }
+                            Box {
+                                Icon(Icons.Rounded.MoreVert, "Object actions", Modifier.size(26.dp).clickable { menu = true }, tint = StudioColors.muted)
+                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    DropdownMenuItem(text = { Text("Frame selected") }, onClick = { menu = false; vm.select(entity.id); vm.focusSelected() })
+                                    DropdownMenuItem(text = { Text("Duplicate") }, onClick = { menu = false; vm.duplicateEntity(entity.id) })
+                                    DropdownMenuItem(text = { Text("Save as prefab") }, onClick = { menu = false; vm.createPrefab(entity.id) }, enabled = entity.prefabId == null)
+                                    DropdownMenuItem(text = { Text("Delete object") }, onClick = { menu = false; vm.deleteEntity(entity.id) })
+                                }
+                            }
                         }
                     }
                 }

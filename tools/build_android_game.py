@@ -58,6 +58,46 @@ def color(value: object) -> bool:
     return type(value) is int and -(2 ** 31) <= value < 2 ** 31
 
 
+def validate_entity(entity: object, ids: list[str], script_ids: list[str], prefab_ids: list[str]) -> None:
+    if not isinstance(entity, dict) or not valid_id(entity.get("id")) or not isinstance(entity.get("name"), str) or len(entity["name"]) > 100:
+        fail("Invalid entity")
+    if entity.get("scriptId") is not None and entity["scriptId"] not in script_ids:
+        fail("Object references a missing script")
+    if entity.get("prefabId") is not None and entity["prefabId"] not in prefab_ids:
+        fail("Object references a missing prefab")
+    if type(entity.get("visible", True)) is not bool or type(entity.get("locked", False)) is not bool:
+        fail("Visibility and lock state must be booleans")
+    transform = entity.get("transform", {})
+    if (not isinstance(transform, dict) or not vector(transform, 0, 0, -1_000_000, 1_000_000) or
+            not number(transform.get("width", 80), 1, 10_000) or
+            not number(transform.get("height", 80), 1, 10_000) or
+            not number(transform.get("rotation", 0), -1e100, 1e100)):
+        fail("Invalid object transform")
+    visual = entity.get("visual", {})
+    if (not isinstance(visual, dict) or visual.get("type", "BOX") not in ("BOX", "CIRCLE", "TEXT", "IMAGE") or
+            not color(visual.get("color", -6447873)) or
+            not isinstance(visual.get("text", "Hello, world!"), str) or len(visual.get("text", "")) > 500):
+        fail("Invalid object visual")
+    if visual.get("type") == "IMAGE" and visual.get("assetId") not in ids:
+        fail("Object references a missing image")
+    body = entity.get("physics")
+    if body is not None:
+        if (not isinstance(body, dict) or body.get("type", "STATIC") not in ("STATIC", "DYNAMIC", "KINEMATIC") or
+                body.get("collider", "AUTO") not in ("AUTO", "BOX", "CIRCLE") or
+                type(body.get("sensor", False)) is not bool or type(body.get("fixedRotation", False)) is not bool or
+                not vector(body.get("velocity", {}), 0, 0, -5000, 5000) or
+                not number(body.get("gravityScale", 1), 0, 5) or
+                not number(body.get("bounce", 0), 0, 1) or
+                not number(body.get("friction", .35), 0, 1) or
+                not number(body.get("density", 1), .01, 100) or
+                not number(body.get("linearDamping", 0), 0, 20)):
+            fail("Invalid object physics")
+    motion = entity.get("motion", {})
+    if (not isinstance(motion, dict) or motion.get("type", "NONE") not in ("NONE", "SPIN", "FLOAT", "PATROL") or
+            not number(motion.get("speed", .6), 0, 6) or not number(motion.get("amplitude", 56), 0, 2000)):
+        fail("Invalid object motion")
+
+
 def validate_project(project: object, images: set[str]) -> dict:
     """Mirror the core format limits before invoking the Android toolchain."""
     if not isinstance(project, dict) or type(project.get("formatVersion")) is not int or project["formatVersion"] != 1:
@@ -93,6 +133,21 @@ def validate_project(project: object, images: set[str]) -> dict:
         value = project.get(key, 0)
         if type(value) is not int or not -(2 ** 63) <= value < 2 ** 63:
             fail("Invalid project timestamp")
+    prefabs = project.get("prefabs", [])
+    if not isinstance(prefabs, list) or len(prefabs) > 128:
+        fail("Invalid prefab list")
+    if any(not isinstance(prefab, dict) or not valid_id(prefab.get("id")) or
+           not isinstance(prefab.get("name"), str) or not 1 <= len(prefab["name"]) <= 100 or
+           not folder(prefab.get("folder", "Prefabs")) for prefab in prefabs):
+        fail("Invalid prefab asset")
+    prefab_ids = [prefab["id"] for prefab in prefabs]
+    if len(set(prefab_ids)) != len(prefab_ids):
+        fail("Duplicate prefab IDs")
+    for prefab in prefabs:
+        template = prefab.get("template")
+        if not isinstance(template, dict) or template.get("prefabId") is not None:
+            fail("Prefab template is invalid")
+        validate_entity(template, ids, script_ids, prefab_ids)
     for scene in scenes:
         camera = scene.get("camera", {})
         gravity = scene.get("gravity", {})
@@ -108,44 +163,10 @@ def validate_project(project: object, images: set[str]) -> dict:
             fail("Game view size is invalid")
         entity_ids = set()
         for entity in objects:
-            if not isinstance(entity, dict) or not valid_id(entity.get("id")) or not isinstance(entity.get("name"), str) or len(entity["name"]) > 100:
-                fail("Invalid entity")
+            validate_entity(entity, ids, script_ids, prefab_ids)
             if entity["id"] in entity_ids:
                 fail("Duplicate entity ID")
             entity_ids.add(entity["id"])
-            if entity.get("scriptId") is not None and entity["scriptId"] not in script_ids:
-                fail("Object references a missing script")
-            if type(entity.get("visible", True)) is not bool or type(entity.get("locked", False)) is not bool:
-                fail("Visibility and lock state must be booleans")
-            transform = entity.get("transform", {})
-            if (not isinstance(transform, dict) or not vector(transform, 0, 0, -1_000_000, 1_000_000) or
-                    not number(transform.get("width", 80), 1, 10_000) or
-                    not number(transform.get("height", 80), 1, 10_000) or
-                    not number(transform.get("rotation", 0), -1e100, 1e100)):
-                fail("Invalid object transform")
-            visual = entity.get("visual", {})
-            if (not isinstance(visual, dict) or visual.get("type", "BOX") not in ("BOX", "CIRCLE", "TEXT", "IMAGE") or
-                    not color(visual.get("color", -6447873)) or
-                    not isinstance(visual.get("text", "Hello, world!"), str) or len(visual.get("text", "")) > 500):
-                fail("Invalid object visual")
-            if visual.get("type") == "IMAGE" and visual.get("assetId") not in ids:
-                fail("Object references a missing image")
-            body = entity.get("physics")
-            if body is not None:
-                if (not isinstance(body, dict) or body.get("type", "STATIC") not in ("STATIC", "DYNAMIC", "KINEMATIC") or
-                        body.get("collider", "AUTO") not in ("AUTO", "BOX", "CIRCLE") or
-                        type(body.get("sensor", False)) is not bool or type(body.get("fixedRotation", False)) is not bool or
-                        not vector(body.get("velocity", {}), 0, 0, -5000, 5000) or
-                        not number(body.get("gravityScale", 1), 0, 5) or
-                        not number(body.get("bounce", 0), 0, 1) or
-                        not number(body.get("friction", .35), 0, 1) or
-                        not number(body.get("density", 1), .01, 100) or
-                        not number(body.get("linearDamping", 0), 0, 20)):
-                    fail("Invalid object physics")
-            motion = entity.get("motion", {})
-            if (not isinstance(motion, dict) or motion.get("type", "NONE") not in ("NONE", "SPIN", "FLOAT", "PATROL") or
-                    not number(motion.get("speed", .6), 0, 6) or not number(motion.get("amplitude", 56), 0, 2000)):
-                fail("Invalid object motion")
     return project
 
 

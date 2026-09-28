@@ -19,6 +19,8 @@ interface ScriptHost {
     fun write(name: String, value: Float)
     fun impulse(x: Float, y: Float)
     fun log(message: String)
+    /** Request a scene by its name or ID; the game host applies it after this frame. */
+    fun changeScene(reference: String)
 }
 
 class ScriptProgram private constructor(
@@ -50,6 +52,7 @@ class ScriptProgram private constructor(
                         }
                         is Statement.Impulse -> host.impulse(statement.x.eval(host), statement.y.eval(host))
                         is Statement.Rotate -> host.write("rotation", host.read("rotation") + statement.angle.eval(host))
+                        is Statement.Scene -> host.changeScene(statement.reference)
                         is Statement.Print -> host.log(statement.text ?: statement.expr!!.eval(host).toString())
                     }
                 } catch (error: ScriptExecutionException) { throw error }
@@ -72,6 +75,7 @@ class ScriptProgram private constructor(
         data class Velocity(val x: Expr, val y: Expr, override val line: Int) : Statement(line)
         data class Impulse(val x: Expr, val y: Expr, override val line: Int) : Statement(line)
         data class Rotate(val angle: Expr, override val line: Int) : Statement(line)
+        data class Scene(val reference: String, override val line: Int) : Statement(line)
         data class Print(val text: String?, val expr: Expr?, override val line: Int) : Statement(line)
     }
 
@@ -212,6 +216,10 @@ class ScriptProgram private constructor(
                     }
                 }
                 "rotate" -> expression(rest, line.number)?.let { Statement.Rotate(it, line.number) }
+                "scene" -> {
+                    require(rest.length <= 100 && rest.none { it.isISOControl() }) { "Use a scene name or ID (up to 100 characters)" }
+                    Statement.Scene(rest, line.number)
+                }
                 "set", "let", "add" -> {
                     val match = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\s*(?:=\\s*|\\s+)(.+)$").matchEntire(rest)
                         ?: throw IllegalArgumentException("Use '$verb name = expression'")

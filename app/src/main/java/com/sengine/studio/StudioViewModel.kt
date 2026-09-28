@@ -16,8 +16,17 @@ import com.sengine.core.ProjectFactory
 import com.sengine.core.ProjectTemplate
 import com.sengine.core.SceneCamera
 import com.sengine.core.VisualType
+import com.sengine.core.Vec2
 import com.sengine.core.WorldRunner
+import com.sengine.core.applyPrefab
+import com.sengine.core.instantiatePrefab
+import com.sengine.core.makePrefab
 import com.sengine.core.moveLayer
+import com.sengine.core.removePrefab
+import com.sengine.core.revertPrefab
+import com.sengine.core.snappedPosition
+import com.sengine.core.snappedRotation
+import com.sengine.core.snappedSize
 import com.sengine.core.removeEntity
 import com.sengine.core.updateEntity
 import com.sengine.studio.data.ProjectStore
@@ -51,6 +60,8 @@ data class StudioState(
     val fps: Int = 0,
     val console: List<EngineLog> = emptyList(),
     val showColliders: Boolean = false,
+    val snapEnabled: Boolean = false,
+    val snapStep: Float = 20f,
     val tool: EditorTool = EditorTool.MOVE,
     val editingScriptId: String? = null,
     val busy: Boolean = false,
@@ -72,6 +83,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     private var playJob: Job? = null
     private var runner: WorldRunner? = null
     private var gestureRecorded = false
+    private var gestureEntityId: String? = null
 
     init { refreshProjects() }
 
@@ -169,6 +181,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun importImage(uri: Uri) {
+        if (_state.value.playing) return
         val projectId = _state.value.project?.id ?: return
         if ((_state.value.project?.assets?.size ?: 0) >= 256) { notice("Asset limit reached"); return }
         viewModelScope.launch {
@@ -185,18 +198,28 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun createScript() {
+    fun createScript() { createScriptImpl(null) }
+    fun createScriptForEntity(entityId: String) { createScriptImpl(entityId) }
+
+    private fun createScriptImpl(entityId: String?) {
         val project = _state.value.project ?: return
+        if (_state.value.playing) return
         if (project.scripts.size >= 64) { notice("Script limit reached"); return }
         val script = ScriptAsset(
             id = ProjectFactory.id(), name = "Script ${project.scripts.size + 1}",
             source = "on start\n  log \"Ready\"\nend\n\non update\n  # move 80 * dt, 0\nend\n\non tap\n  impulse 0, -470\nend\n",
         )
-        editProject { it.copy(scripts = it.scripts + script) }
+        editProject { current ->
+            val withScript = current.copy(scripts = current.scripts + script)
+            if (entityId == null) withScript else withScript.withScene(
+                withScript.activeScene().updateEntity(entityId) { it.copy(scriptId = script.id) },
+            )
+        }
         _state.update { it.copy(editingScriptId = script.id) }
     }
 
     fun saveScript(id: String, source: String, name: String, folder: String) {
+        if (_state.value.playing) return
         if (source.length > 16_000 || name.isBlank() || name.length > 100 || !validFolder(folder)) {
             notice("Check script name, folder and 16 KB source limit")
             return
@@ -214,9 +237,11 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteScript(id: String) {
+        if (_state.value.playing) return
         val project = _state.value.project ?: return
-        if (project.scenes.any { scene -> scene.entities.any { it.scriptId == id } }) {
-            notice("Detach this script from all objects before deleting it")
+        if (project.scenes.any { scene -> scene.entities.any { it.scriptId == id } } ||
+            project.prefabs.any { it.template.scriptId == id }) {
+            notice("Detach this script from objects and prefabs before deleting it")
             return
         }
         editProject { it.copy(scripts = it.scripts.filterNot { script -> script.id == id }) }
@@ -231,13 +256,68 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun removeAsset(id: String) {
+        if (_state.value.playing) return
         val project = _state.value.project ?: return
-        if (project.scenes.any { scene -> scene.entities.any { it.visual.assetId == id && it.visual.type == VisualType.IMAGE } }) {
-            notice("Remove all sprites using this image before deleting it")
+        if (project.scenes.any { scene -> scene.entities.any { it.visual.assetId == id && it.visual.type == VisualType.IMAGE } } ||
+            project.prefabs.any { it.template.visual.type == VisualType.IMAGE && it.template.visual.assetId == id }) {
+            notice("Remove sprites and prefabs using this image before deleting it")
             return
         }
         // The underlying file is retained until project deletion so Undo can restore the asset.
         editProject { it.copy(assets = it.assets.filterNot { asset -> asset.id == id }) }
+    }
+
+    fun createPrefab(entityId: String) {
+        val project = _state.value.project ?: return
+        if (_state.value.playing) return
+        if (project.prefabs.size >= 128) { notice("Prefab limit reached"); return }
+        val source = project.activeScene().entities.firstOrNull { it.id == entityId } ?: return
+        if (source.prefabId != null) { notice("Unpack this instance to make a new prefab"); return }
+        val id = ProjectFactory.id()
+        editProject { it.makePrefab(entityId, id) }
+        notice("Prefab saved • find it in the Project browser")
+    }
+
+    fun instantiatePrefab(prefabId: String) {
+        val project = _state.value.project ?: return
+        if (_state.value.playing || project.prefabs.none { it.id == prefabId }) return
+        val scene = project.activeScene()
+        if (scene.entities.size >= 2000) { notice("Object limit reached"); return }
+        val id = ProjectFactory.id()
+        editProject { it.instantiatePrefab(prefabId, id, Vec2(scene.camera.x, scene.camera.y)) }
+        _state.update { it.copy(selectedId = id, panel = EditorPanel.INSPECTOR) }
+    }
+
+    fun applySelectedPrefab(entityId: String) {
+        if (_state.value.playing) return
+        val entity = _state.value.project?.activeScene()?.entities?.firstOrNull { it.id == entityId } ?: return
+        if (entity.prefabId == null) return
+        editProject { it.applyPrefab(entityId) }
+        notice("Prefab changes applied to linked instances")
+    }
+
+    fun revertSelectedPrefab(entityId: String) {
+        val entity = _state.value.project?.activeScene()?.entities?.firstOrNull { it.id == entityId } ?: return
+        if (entity.prefabId == null) return
+        editProject { it.revertPrefab(entityId) }
+    }
+
+    fun unpackPrefab(entityId: String) { editEntity(entityId) { it.copy(prefabId = null) } }
+
+    fun renamePrefab(id: String, name: String, folder: String) {
+        if (_state.value.playing) return
+        if (name.isBlank() || name.length > 100 || !validFolder(folder)) {
+            notice("Invalid prefab name or folder"); return
+        }
+        editProject { project -> project.copy(prefabs = project.prefabs.map {
+            if (it.id == id) it.copy(name = name.trim(), folder = folder.trim()) else it
+        }) }
+    }
+
+    fun deletePrefab(id: String) {
+        if (_state.value.playing) return
+        editProject { it.removePrefab(id) }
+        notice("Prefab deleted • placed objects were unpacked")
     }
 
     fun assetFile(projectId: String, assetId: String) = store.assetFile(projectId, assetId)
@@ -250,8 +330,12 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun showPanel(panel: EditorPanel) { _state.update { it.copy(panel = panel) } }
     fun setTool(tool: EditorTool) { _state.update { it.copy(tool = tool) } }
     fun toggleColliders() { _state.update { it.copy(showColliders = !it.showColliders) } }
+    fun toggleSnap() { _state.update { it.copy(snapEnabled = !it.snapEnabled) } }
+    fun setSnapStep(step: Float) {
+        if (step in listOf(5f, 10f, 20f, 40f, 80f)) _state.update { it.copy(snapStep = step, snapEnabled = true) }
+    }
     fun clearConsole() { _state.update { it.copy(console = emptyList()) } }
-    fun openScriptEditor(id: String) { _state.update { it.copy(editingScriptId = id) } }
+    fun openScriptEditor(id: String) { if (!_state.value.playing) _state.update { it.copy(editingScriptId = id) } }
     fun closeScriptEditor() { _state.update { it.copy(editingScriptId = null) } }
     fun select(id: String?) { _state.update { it.copy(selectedId = id, panel = if (id == null) it.panel else EditorPanel.INSPECTOR) } }
 
@@ -320,7 +404,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun reorderEntity(id: String, direction: Int) { editScene { it.moveLayer(id, direction) } }
     fun editEntity(id: String, change: (Entity) -> Entity) { editScene { it.updateEntity(id, change) } }
 
-    fun beginGesture() { gestureRecorded = false }
+    fun beginGesture() { gestureRecorded = false; gestureEntityId = null }
 
     fun dragEntity(id: String, deltaX: Float, deltaY: Float) {
         if (deltaX == 0f && deltaY == 0f) return
@@ -335,6 +419,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         gestureRecorded = true
+        gestureEntityId = id
     }
 
     fun rotateEntity(id: String, degrees: Float) {
@@ -345,6 +430,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         gestureRecorded = true
+        gestureEntityId = id
     }
 
     fun resizeEntity(id: String, delta: Float) {
@@ -358,6 +444,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         gestureRecorded = true
+        gestureEntityId = id
     }
 
     fun gestureCamera(camera: SceneCamera) {
@@ -372,8 +459,22 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun endGesture() {
+        val target = gestureEntityId
+        val settings = _state.value
+        if (gestureRecorded && target != null && settings.snapEnabled) {
+            editScene(record = false, persist = false) { scene -> scene.updateEntity(target) { entity ->
+                val transform = when (settings.tool) {
+                    EditorTool.MOVE -> entity.transform.snappedPosition(settings.snapStep)
+                    EditorTool.ROTATE -> entity.transform.snappedRotation()
+                    EditorTool.SCALE -> entity.transform.snappedSize(settings.snapStep)
+                    EditorTool.PAN -> entity.transform
+                }
+                entity.copy(transform = transform)
+            } }
+        }
         if (gestureRecorded) saveNow()
         gestureRecorded = false
+        gestureEntityId = null
     }
 
     fun zoom(factor: Float) {
@@ -381,6 +482,12 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun frameScene() { editScene { it.copy(camera = SceneCamera()) } }
+
+    fun focusSelected() {
+        val scene = _state.value.project?.activeScene() ?: return
+        val target = scene.entities.firstOrNull { it.id == _state.value.selectedId } ?: return
+        editScene { it.copy(camera = it.camera.copy(x = target.transform.x, y = target.transform.y)) }
+    }
 
     fun undo() {
         if (_state.value.playing || undo.isEmpty()) return
@@ -421,10 +528,11 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                 val active = runner ?: break
                 if (!_state.value.paused) {
                     try {
-                        val next = active.advance(delta)
+                        active.advance(delta)
                         frames++
-                        _state.update { if (it.playing) it.copy(playScene = next) else it }
                         collectLogs(active)
+                        val nextWorld = followSceneRequest(active)
+                        _state.update { if (it.playing) it.copy(playScene = nextWorld.scene) else it }
                     } catch (error: Exception) {
                         appendLog(EngineLog(EngineLogLevel.ERROR, "Runtime stopped: ${error.message}"))
                         stop()
@@ -450,9 +558,10 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         if (!_state.value.playing || !_state.value.paused) return
         val world = runner ?: return
         try {
-            val next = world.stepOnce()
-            _state.update { it.copy(playScene = next) }
+            world.stepOnce()
             collectLogs(world)
+            val nextWorld = followSceneRequest(world)
+            _state.update { it.copy(playScene = nextWorld.scene) }
         } catch (error: Exception) {
             appendLog(EngineLog(EngineLogLevel.ERROR, "Step failed: ${error.message}"))
             stop()
@@ -472,9 +581,27 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         if (_state.value.paused) return
         val world = runner ?: return
         if (world.tap(x, y)) {
-            _state.update { it.copy(playScene = world.scene) }
             collectLogs(world)
+            val nextWorld = followSceneRequest(world)
+            _state.update { it.copy(playScene = nextWorld.scene) }
         }
+    }
+
+    private fun followSceneRequest(current: WorldRunner): WorldRunner {
+        val reference = current.consumeSceneRequest() ?: return current
+        val project = _state.value.project ?: return current
+        val destination = project.scenes.firstOrNull { it.id == reference }
+            ?: project.scenes.firstOrNull { it.name == reference }
+        if (destination == null) {
+            appendLog(EngineLog(EngineLogLevel.WARNING, "Scene not found: $reference"))
+            return current
+        }
+        if (destination.id == current.scene.id) return current
+        val next = WorldRunner(destination, project.scripts)
+        runner = next
+        appendLog(EngineLog(EngineLogLevel.INFO, "Loaded scene: ${destination.name}"))
+        collectLogs(next)
+        return next
     }
 
     private fun appendLog(message: EngineLog) {

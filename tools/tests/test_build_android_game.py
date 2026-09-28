@@ -85,6 +85,20 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 builder.stage_project(self.archive(payload), None)
 
+    def test_prefab_templates_and_instance_links_are_checked(self):
+        payload = project()
+        payload["prefabs"] = [{"id": "crate", "name": "Crate", "template":
+                               {"id": "template", "name": "Crate", "visual": {"type": "BOX"}}}]
+        payload["scenes"][0]["entities"][0]["prefabId"] = "crate"
+        archive = self.archive(payload)
+        self.assertEqual(builder.stage_project(archive, None)["prefabs"], payload["prefabs"])
+        payload["prefabs"][0]["template"]["prefabId"] = "crate"
+        with self.assertRaises(ValueError):
+            builder.stage_project(self.archive(payload), None)
+        payload["prefabs"] = []
+        with self.assertRaises(ValueError):
+            builder.stage_project(self.archive(payload), None)
+
     def test_declared_decompressed_size_is_bounded(self):
         payload = project()
         payload["assets"] = [{"id": "big", "name": "Big"}]

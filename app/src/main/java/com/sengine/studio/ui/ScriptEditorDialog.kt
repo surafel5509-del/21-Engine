@@ -65,7 +65,7 @@ fun ScriptEditorDialog(script: ScriptAsset, vm: StudioViewModel) {
                         Text("EVENTS", style = MaterialTheme.typography.labelMedium, color = StudioColors.violet)
                         Text("on start · on update\non tap · on collision", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
                         Text("COMMANDS", style = MaterialTheme.typography.labelMedium, color = StudioColors.violet)
-                        Text("move x, y  ·  velocity x, y\nimpulse x, y  ·  rotate degrees\nset name = value  ·  add name = value\nif condition / else / end  ·  log value", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+                        Text("move x, y  ·  velocity x, y\nimpulse x, y  ·  rotate degrees\nscene Level 2  ·  log value\nset name = value  ·  add name = value\nif condition / else / end", style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
                     }
                     OutlinedTextField(
                         value = source, onValueChange = { if (it.length <= 16_000) source = it },

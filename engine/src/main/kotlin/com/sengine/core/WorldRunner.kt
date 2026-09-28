@@ -45,6 +45,7 @@ class WorldRunner(
     private var elapsed = 0f
     private var accumulator = 0f
     private var current = source
+    private var sceneRequest: String? = null
 
     val scene: GameScene get() = current
     val bodyCount: Int get() = bodies.size
@@ -181,6 +182,9 @@ class WorldRunner(
         while (messages.isNotEmpty()) add(messages.removeFirst())
     }
 
+    /** Consumed by the editor or standalone player after a tick; neither script can access the project. */
+    fun consumeSceneRequest(): String? = sceneRequest.also { sceneRequest = null }
+
     private fun runScript(entity: Entity, event: ScriptEvent, dt: Float, other: Entity? = null) {
         val scriptId = entity.scriptId ?: return
         val program = programs[scriptId] ?: return
@@ -240,6 +244,9 @@ class WorldRunner(
             }
         }
         override fun log(message: String) { emit(EngineLogLevel.INFO, message.take(240), entity.id) }
+        override fun changeScene(reference: String) {
+            if (sceneRequest == null) sceneRequest = reference
+        }
     }
 
     private fun setTransform(id: String, value: Transform) {

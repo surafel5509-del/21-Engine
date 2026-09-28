@@ -16,6 +16,13 @@ class ProjectCodecTest {
         }
     }
 
+    @Test fun olderScenePackagesWithoutPrefabFieldsRemainReadable() {
+        val source = ProjectCodec.encode(ProjectFactory.create("Legacy", ProjectTemplate.BLANK))
+        val legacy = source.replace(Regex(",\\s*\"prefabs\": \\[\\]"), "")
+        assertTrue(legacy != source)
+        assertTrue(ProjectCodec.decode(legacy).prefabs.isEmpty())
+    }
+
     @Test fun rejectsUnknownVersionsAndUnsafeIds() {
         val source = ProjectCodec.encode(ProjectFactory.create("Test", ProjectTemplate.BLANK))
         rejects { ProjectCodec.decode(source.replace("\"formatVersion\": 1", "\"formatVersion\": 99")) }
