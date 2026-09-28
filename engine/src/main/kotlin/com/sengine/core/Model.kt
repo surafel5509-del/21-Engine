@@ -27,14 +27,24 @@ data class Visual(
 )
 
 @Serializable
-enum class BodyType { STATIC, DYNAMIC }
+enum class BodyType { STATIC, DYNAMIC, KINEMATIC }
 
+@Serializable
+enum class ColliderShape { AUTO, BOX, CIRCLE }
+
+/** JBox2D body configuration. Velocity is measured in world units per second. */
 @Serializable
 data class PhysicsBody(
     val type: BodyType = BodyType.STATIC,
     val velocity: Vec2 = Vec2(),
     val gravityScale: Float = 1f,
     val bounce: Float = 0f,
+    val friction: Float = 0.35f,
+    val density: Float = 1f,
+    val sensor: Boolean = false,
+    val fixedRotation: Boolean = false,
+    val linearDamping: Float = 0f,
+    val collider: ColliderShape = ColliderShape.AUTO,
 )
 
 @Serializable
@@ -58,6 +68,8 @@ data class Entity(
     val motion: Motion = Motion(),
     val visible: Boolean = true,
     val locked: Boolean = false,
+    /** A sandboxed S Script asset ID, evaluated only in play mode. */
+    val scriptId: String? = null,
 )
 
 @Serializable
@@ -79,7 +91,16 @@ data class GameScene(
 )
 
 @Serializable
-data class ImageAsset(val id: String, val name: String)
+data class ImageAsset(val id: String, val name: String, val folder: String = "Textures")
+
+/** Script sources are project assets, not arbitrary Java/Kotlin executed on the device. */
+@Serializable
+data class ScriptAsset(
+    val id: String,
+    val name: String,
+    val source: String,
+    val folder: String = "Scripts",
+)
 
 @Serializable
 data class GameProject(
@@ -89,6 +110,7 @@ data class GameProject(
     val scenes: List<GameScene>,
     val activeSceneId: String,
     val assets: List<ImageAsset> = emptyList(),
+    val scripts: List<ScriptAsset> = emptyList(),
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {

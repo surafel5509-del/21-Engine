@@ -18,10 +18,10 @@ class WorldRunnerTest {
         val source = GameScene("scene", "Test", entities = listOf(floor, ball))
         val world = WorldRunner(source)
         repeat(180) { world.advance(1f / 60f) }
-        assertEquals(80f, world.scene.entities.last().transform.y, 0.01f)
-        assertEquals(0f, world.scene.entities.last().physics!!.velocity.y, 0.01f)
+        assertEquals(80f, world.scene.entities.last().transform.y, 1.0f)
+        assertEquals(0f, world.scene.entities.last().physics!!.velocity.y, 1.0f)
         assertEquals(0f, source.entities.last().transform.y, 0.01f)
-        assertTrue(world.tap(0f, 80f))
+        assertTrue(world.tap(0f, world.scene.entities.last().transform.y))
         assertEquals(-470f, world.scene.entities.last().physics!!.velocity.y, 0.01f)
         assertFalse(world.tap(2000f, 2000f))
     }

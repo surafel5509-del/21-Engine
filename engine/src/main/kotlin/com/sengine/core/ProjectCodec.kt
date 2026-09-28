@@ -30,8 +30,15 @@ object ProjectCodec {
         require(project.assets.size <= 256)
         require(project.assets.map { it.id }.distinct().size == project.assets.size)
         project.assets.forEach { asset ->
-            require(safeId.matches(asset.id) && asset.name.length <= 160) { "Invalid asset" }
+            require(safeId.matches(asset.id) && asset.name.length <= 160 && asset.folder.isFolder()) { "Invalid asset" }
         }
+        require(project.scripts.size <= 64) { "Too many scripts" }
+        require(project.scripts.map { it.id }.distinct().size == project.scripts.size)
+        project.scripts.forEach { script ->
+            require(safeId.matches(script.id) && script.name.length in 1..100 && script.folder.isFolder()) { "Invalid script" }
+            require(script.source.length <= 16_000) { "Script is too large" }
+        }
+        val scriptIds = project.scripts.mapTo(mutableSetOf()) { it.id }
         val assetIds = project.assets.mapTo(mutableSetOf()) { it.id }
         project.scenes.forEach { scene ->
             require(safeId.matches(scene.id) && scene.name.length <= 100) { "Invalid scene" }
@@ -51,10 +58,14 @@ object ProjectCodec {
                     val assetId = entity.visual.assetId
                     require(assetId != null && assetId in assetIds) { "Sprite asset is missing" }
                 }
+                entity.scriptId?.let { require(it in scriptIds) { "Object script is missing" } }
                 entity.physics?.let { body ->
                     require(body.velocity.x in -5000f..5000f && body.velocity.y in -5000f..5000f)
                     require(body.gravityScale.isFinite() && body.gravityScale in 0f..5f)
                     require(body.bounce.isFinite() && body.bounce in 0f..1f)
+                    require(body.friction.isFinite() && body.friction in 0f..1f)
+                    require(body.density.isFinite() && body.density in 0.01f..100f)
+                    require(body.linearDamping.isFinite() && body.linearDamping in 0f..20f)
                 }
                 require(entity.motion.speed.isFinite() && entity.motion.speed in 0f..6f)
                 require(entity.motion.amplitude.isFinite() && entity.motion.amplitude in 0f..2000f)
@@ -63,4 +74,8 @@ object ProjectCodec {
     }
 
     private fun Float.isPosition(): Boolean = isFinite() && this in -1_000_000f..1_000_000f
+
+    private fun String.isFolder(): Boolean = length in 1..100 && split('/').all { part ->
+        part.length in 1..32 && part.matches(Regex("[A-Za-z0-9 _-]+")) && part.isNotBlank()
+    }
 }
