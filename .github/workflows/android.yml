@@ -19,12 +19,29 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK 35
-        run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+      # GitHub-hosted Ubuntu runners include the Android SDK and command-line tools.
+      - name: Ensure Android SDK 35
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" ]; then
+            sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+          fi
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests and debug APK
-        run: ./gradlew :engine:test :app:assembleDebug --stacktrace
+        shell: bash
+        run: |
+          set +e
+          ./gradlew :engine:test :app:assembleDebug --stacktrace 2>&1 | tee /tmp/sengine-gradle.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            # A short annotation is accessible even when CI log downloads are unavailable.
+            details=$(tail -n 45 /tmp/sengine-gradle.log)
+            details=${details//\%/\%25}
+            details=${details//$'\r'/\%0D}
+            details=${details//$'\n'/\%0A}
+            printf '::error title=Gradle build output::%s\n' "$details"
+          fi
+          exit "$result"
       - uses: actions/upload-artifact@v4
         if: success()
         with:
