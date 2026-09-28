@@ -259,15 +259,35 @@ private fun BuildContents(
     state: StudioState, onExportPackage: (String) -> Unit, onExportWeb: (String) -> Unit,
 ) {
     val project = state.project ?: return
+    var showAndroidSteps by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        BuildCard("PROJECT PACKAGE", ".sengine • scenes, scripts, textures", { onExportPackage(project.name) })
-        BuildCard("WEB GAME", "Playable offline Canvas game ZIP", { onExportWeb(project.name) })
-        BuildCard("ANDROID APK", "Build with the :player Gradle target", { onExportPackage(project.name) })
+        BuildCard("PROJECT PACKAGE", ".sengine • scenes, scripts, textures", "EXPORT →", { onExportPackage(project.name) })
+        BuildCard("WEB GAME", "Playable offline Canvas game ZIP", "EXPORT →", { onExportWeb(project.name) })
+        BuildCard("ANDROID APK", "Standalone app with the same renderer and physics", "BUILD STEPS →", { showAndroidSteps = true })
+    }
+    if (showAndroidSteps) {
+        AlertDialog(
+            onDismissRequest = { showAndroidSteps = false },
+            title = { Text("Build a separate Android game") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("1. Export this project as a .sengine package and copy it to a computer with the S Engine source, JDK 17 and Android SDK 35.")
+                    Text("2. In the repository root run:", color = StudioColors.muted)
+                    Text("python3 tools/build_android_game.py your-game.sengine --application-id com.example.mygame",
+                        style = MaterialTheme.typography.bodySmall, color = StudioColors.mint)
+                    Text("3. Install the APK from build/game-apks/. You can set --name and --icon; use --release with your own signing keys to distribute a release build.")
+                    Text("The editor exports projects on-device. An Android APK requires Gradle and is not compiled on your phone or uploaded to a server by this app.",
+                        style = MaterialTheme.typography.bodySmall, color = StudioColors.muted)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAndroidSteps = false; onExportPackage(project.name) }) { Text("Export .sengine") } },
+            dismissButton = { TextButton(onClick = { showAndroidSteps = false }) { Text("Close") } },
+        )
     }
 }
 
 @Composable
-private fun BuildCard(title: String, detail: String, onClick: () -> Unit) {
+private fun BuildCard(title: String, detail: String, action: String, onClick: () -> Unit) {
     Column(
         Modifier.width(205.dp).fillMaxHeight().background(StudioColors.raised, RoundedCornerShape(8.dp))
             .border(1.dp, StudioColors.border, RoundedCornerShape(8.dp))
@@ -276,6 +296,6 @@ private fun BuildCard(title: String, detail: String, onClick: () -> Unit) {
     ) {
         Text(title, style = MaterialTheme.typography.labelMedium, color = StudioColors.violet)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = StudioColors.muted, maxLines = 2)
-        Text("EXPORT →", style = MaterialTheme.typography.labelMedium, color = StudioColors.mint)
+        Text(action, style = MaterialTheme.typography.labelMedium, color = StudioColors.mint)
     }
 }

@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "S Engine"
-include(":engine", ":app")
+include(":engine", ":renderer", ":app", ":player")

@@ -1,30 +1,21 @@
 package com.sengine.studio.ui
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Typeface
-import android.util.LruCache
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import com.sengine.core.ColliderShape
-import com.sengine.core.Entity
 import com.sengine.core.GameScene
-import com.sengine.studio.EditorTool
 import com.sengine.core.SceneCamera
-import com.sengine.core.VisualType
 import com.sengine.core.hitTest
 import com.sengine.core.updateEntity
+import com.sengine.renderer.ScenePainter
+import com.sengine.studio.EditorTool
 import java.io.File
 import kotlin.math.hypot
-import kotlin.math.floor
+import kotlin.math.min
 
 @Composable
 fun SceneCanvas(
@@ -62,8 +53,9 @@ fun SceneCanvas(
     )
 }
 
-/** Native Canvas stays responsive during a drag, even before Compose's next recomposition. */
+/** Touch controller for the editor. ScenePainter also renders the standalone Android player. */
 private class SceneViewport(context: Context) : View(context) {
+    private val painter = ScenePainter(context)
     private var scene = GameScene("viewport", "Viewport")
     private var projectId = ""
     private var selectedId: String? = null
@@ -79,12 +71,6 @@ private class SceneViewport(context: Context) : View(context) {
     var onGestureBegin: () -> Unit = {}
     var onGestureEnd: () -> Unit = {}
     var onPlayTap: (Float, Float) -> Unit = { _, _ -> }
-
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val bitmaps = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
-    }
-    private val density = resources.displayMetrics.density
     private var lastX = 0f
     private var lastY = 0f
     private var pinchDistance = 0f
@@ -92,14 +78,13 @@ private class SceneViewport(context: Context) : View(context) {
     private var pinchY = 0f
     private var draggedId: String? = null
 
-    init { contentDescription = "Scene viewport. Drag objects to move; drag empty space to pan; pinch to zoom." }
+    init { contentDescription = "Scene viewport. Drag an object to edit; drag empty space to pan; pinch to zoom." }
 
     fun bind(
         next: GameScene, nextProjectId: String, selection: String?, isPlaying: Boolean,
-        selectedTool: EditorTool, debugColliders: Boolean,
-        assetResolver: (String, String) -> File,
+        selectedTool: EditorTool, debugColliders: Boolean, assetResolver: (String, String) -> File,
     ) {
-        if (nextProjectId != projectId) bitmaps.evictAll()
+        if (nextProjectId != projectId) painter.clear()
         projectId = nextProjectId
         scene = next
         selectedId = selection
@@ -111,136 +96,21 @@ private class SceneViewport(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
-        bitmaps.evictAll()
+        painter.clear()
         super.onDetachedFromWindow()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(scene.background)
-        val scale = worldScale()
-        canvas.save()
-        canvas.translate(width / 2f, height / 2f)
-        canvas.scale(scale, scale)
-        canvas.translate(-scene.camera.x, -scene.camera.y)
-        drawGrid(canvas, scale)
-        drawGameFrame(canvas, scale)
-        scene.entities.forEach { if (it.visible) drawEntity(canvas, it, scale) }
-        canvas.restore()
-    }
-
-    private fun drawGrid(canvas: Canvas, scale: Float) {
-        val camera = scene.camera
-        val left = camera.x - width / (2f * scale)
-        val right = camera.x + width / (2f * scale)
-        val top = camera.y - height / (2f * scale)
-        val bottom = camera.y + height / (2f * scale)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1f / scale
-        paint.color = Color.argb(23, 202, 216, 255)
-        var x = floor(left / GRID) * GRID
-        while (x <= right) { canvas.drawLine(x, top, x, bottom, paint); x += GRID }
-        var y = floor(top / GRID) * GRID
-        while (y <= bottom) { canvas.drawLine(left, y, right, y, paint); y += GRID }
-        paint.color = Color.argb(65, 161, 181, 233)
-        canvas.drawLine(0f, top, 0f, bottom, paint)
-        canvas.drawLine(left, 0f, right, 0f, paint)
-    }
-
-    private fun drawGameFrame(canvas: Canvas, scale: Float) {
-        val frame = RectF(-scene.gameWidth / 2f, -scene.gameHeight / 2f, scene.gameWidth / 2f, scene.gameHeight / 2f)
-        paint.style = Paint.Style.FILL
-        paint.color = Color.argb(15, 240, 244, 255)
-        canvas.drawRect(frame, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2f / scale
-        paint.color = Color.argb(210, 240, 244, 255)
-        canvas.drawRect(frame, paint)
-    }
-
-    private fun drawEntity(canvas: Canvas, entity: Entity, scale: Float) {
-        val t = entity.transform
-        val rect = RectF(-t.width / 2f, -t.height / 2f, t.width / 2f, t.height / 2f)
-        canvas.save()
-        canvas.translate(t.x, t.y)
-        canvas.rotate(t.rotation)
-        paint.style = Paint.Style.FILL
-        paint.color = entity.visual.color
-        when (entity.visual.type) {
-            VisualType.BOX -> canvas.drawRoundRect(rect, 5f, 5f, paint)
-            VisualType.CIRCLE -> canvas.drawOval(rect, paint)
-            VisualType.TEXT -> {
-                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                paint.textAlign = Paint.Align.CENTER
-                paint.textSize = t.height * .62f
-                canvas.drawText(entity.visual.text, 0f, -(paint.ascent() + paint.descent()) / 2f, paint)
-                paint.typeface = null
-            }
-            VisualType.IMAGE -> {
-                val bitmap = entity.visual.assetId?.let(::bitmap)
-                if (bitmap != null) {
-                    paint.color = Color.WHITE
-                    canvas.drawBitmap(bitmap, null, rect, paint)
-                } else {
-                    paint.color = Color.rgb(57, 68, 89)
-                    canvas.drawRect(rect, paint)
-                    paint.color = Color.rgb(228, 143, 160)
-                    paint.style = Paint.Style.STROKE
-                    paint.strokeWidth = 2f / scale
-                    canvas.drawLine(rect.left, rect.top, rect.right, rect.bottom, paint)
-                    canvas.drawLine(rect.right, rect.top, rect.left, rect.bottom, paint)
-                }
-            }
-        }
-        entity.physics?.let { physics ->
-            if (showColliders) {
-                paint.style = Paint.Style.STROKE
-                paint.color = when {
-                    physics.sensor -> Color.rgb(255, 144, 185)
-                    physics.type == com.sengine.core.BodyType.DYNAMIC -> Color.rgb(105, 227, 184)
-                    else -> Color.rgb(244, 184, 103)
-                }
-                paint.strokeWidth = 2f / scale
-                if (physics.collider == ColliderShape.CIRCLE ||
-                    (physics.collider == ColliderShape.AUTO && entity.visual.type == VisualType.CIRCLE)
-                ) {
-                    canvas.drawCircle(0f, 0f, minOf(t.width, t.height) / 2f, paint)
-                } else canvas.drawRect(rect, paint)
-            }
-        }
-        if (!playing && selectedId == entity.id) {
-            paint.style = Paint.Style.STROKE
-            paint.color = Color.rgb(154, 186, 255)
-            paint.strokeWidth = 2f / scale
-            val padding = 4f / scale
-            canvas.drawRect(RectF(rect.left - padding, rect.top - padding, rect.right + padding, rect.bottom + padding), paint)
-            paint.style = Paint.Style.FILL
-            listOf(rect.left to rect.top, rect.right to rect.top, rect.left to rect.bottom, rect.right to rect.bottom).forEach { (x, y) ->
-                canvas.drawCircle(x, y, 4f / scale, paint)
-            }
-            if (tool == EditorTool.ROTATE) {
-                paint.style = Paint.Style.STROKE
-                canvas.drawCircle(0f, 0f, maxOf(t.width, t.height) * .6f, paint)
-            } else if (tool == EditorTool.MOVE) {
-                canvas.drawLine(0f, 0f, 22f / scale, 0f, paint)
-                canvas.drawLine(0f, 0f, 0f, 22f / scale, paint)
-            }
-        }
-        canvas.restore()
-    }
-
-    private fun bitmap(assetId: String): Bitmap? {
-        val key = "$projectId/$assetId"
-        bitmaps.get(key)?.let { return it }
-        val file = resolveAsset(projectId, assetId)
-        if (!file.isFile) return null
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.path, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) sample *= 2
-        return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-            ?.also { bitmaps.put(key, it) }
+        painter.draw(
+            canvas, scene, width, height, worldScale(),
+            imageSource = { id -> resolveAsset(projectId, id).takeIf { it.isFile }?.inputStream() },
+            selectedId = if (playing) null else selectedId,
+            showGrid = !playing,
+            showFrame = !playing,
+            showColliders = showColliders,
+            clipToFrame = playing,
+        )
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -278,23 +148,23 @@ private class SceneViewport(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 if (playing) return true
                 if (event.pointerCount >= 2) {
-                    val distance = distance(event)
-                    val middleX = (event.getX(0) + event.getX(1)) / 2f
-                    val middleY = (event.getY(0) + event.getY(1)) / 2f
-                    if (pinchDistance > 0f && distance > 0f) {
-                        val old = scene.camera
-                        val anchorX = old.x + (pinchX - width / 2f) / worldScale()
-                        val anchorY = old.y + (pinchY - height / 2f) / worldScale()
-                        val zoom = (old.zoom * distance / pinchDistance).coerceIn(.2f, 4f)
+                    val separation = distance(event)
+                    val midX = (event.getX(0) + event.getX(1)) / 2f
+                    val midY = (event.getY(0) + event.getY(1)) / 2f
+                    if (pinchDistance > 0f && separation > 0f) {
+                        val previous = scene.camera
+                        val anchorX = previous.x + (pinchX - width / 2f) / worldScale()
+                        val anchorY = previous.y + (pinchY - height / 2f) / worldScale()
+                        val zoom = (previous.zoom * separation / pinchDistance).coerceIn(.2f, 4f)
                         updateCamera(SceneCamera(
-                            x = anchorX - (middleX - width / 2f) / (density * zoom),
-                            y = anchorY - (middleY - height / 2f) / (density * zoom),
+                            x = anchorX - (midX - width / 2f) / (painter.density * zoom),
+                            y = anchorY - (midY - height / 2f) / (painter.density * zoom),
                             zoom = zoom,
                         ))
                     }
-                    pinchDistance = distance
-                    pinchX = middleX
-                    pinchY = middleY
+                    pinchDistance = separation
+                    pinchX = midX
+                    pinchY = midY
                 } else {
                     val dx = event.x - lastX
                     val dy = event.y - lastY
@@ -331,12 +201,10 @@ private class SceneViewport(context: Context) : View(context) {
                                 }
                                 EditorTool.PAN -> Unit
                             }
-                        } else {
-                            updateCamera(scene.camera.copy(
-                                x = scene.camera.x - dx / worldScale(),
-                                y = scene.camera.y - dy / worldScale(),
-                            ))
-                        }
+                        } else updateCamera(scene.camera.copy(
+                            x = scene.camera.x - dx / worldScale(),
+                            y = scene.camera.y - dy / worldScale(),
+                        ))
                         invalidate()
                     }
                     lastX = event.x
@@ -363,21 +231,13 @@ private class SceneViewport(context: Context) : View(context) {
         return true
     }
 
-    override fun performClick(): Boolean {
-        super.performClick()
-        return true
-    }
-
-    private fun updateCamera(camera: SceneCamera) {
-        scene = scene.copy(camera = camera)
-        onCamera(camera)
-        invalidate()
-    }
-
+    override fun performClick(): Boolean { super.performClick(); return true }
+    private fun updateCamera(camera: SceneCamera) { scene = scene.copy(camera = camera); onCamera(camera); invalidate() }
     private fun screenX(x: Float): Float = scene.camera.x + (x - width / 2f) / worldScale()
     private fun screenY(y: Float): Float = scene.camera.y + (y - height / 2f) / worldScale()
-    private fun worldScale(): Float = density * scene.camera.zoom
+    private fun worldScale(): Float = if (playing) {
+        (min(width.toFloat() / scene.gameWidth, height.toFloat() / scene.gameHeight) * scene.camera.zoom)
+            .coerceAtLeast(.01f)
+    } else painter.density * scene.camera.zoom
     private fun distance(event: MotionEvent): Float = hypot(event.getX(0) - event.getX(1), event.getY(0) - event.getY(1))
-
-    private companion object { const val GRID = 40f }
 }

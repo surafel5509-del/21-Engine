@@ -9,6 +9,7 @@ local.properties
 
 # Android packages and signing material
 *.apk
+*.sengine
 *.aab
 *.apks
 *.jks

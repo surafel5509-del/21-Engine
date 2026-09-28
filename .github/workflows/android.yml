@@ -27,7 +27,9 @@ jobs:
             sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
           fi
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests and debug APK
+      - name: Game-package builder validation tests
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: Unit tests and editor debug APK
         shell: bash
         run: |
           set +e
@@ -47,6 +49,44 @@ jobs:
         with:
           name: s-engine-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Build standalone player from a test .sengine package
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, struct, zipfile, zlib
+          from pathlib import Path
+          def chunk(kind, data):
+              return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+          png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>2I5B', 48, 48, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress((b'\x00' + b'\xa8\x92\xff\xff' * 48) * 48)) + chunk(b'IEND', b'')
+          project = {
+              'formatVersion': 1, 'id': 'ci-game', 'name': 'CI Player', 'activeSceneId': 'scene-1',
+              'assets': [{'id': 'image-1', 'name': 'CI texture'}],
+              'scripts': [{'id': 'bounce', 'name': 'Bounce', 'source': 'on tap\n  impulse 0, -170\n  log "tap"\nend'}],
+              'scenes': [{'id': 'scene-1', 'name': 'Physics', 'gameWidth': 480, 'gameHeight': 320,
+                          'entities': [{'id': 'ground', 'name': 'Ground', 'transform': {'y': 125, 'width': 450, 'height': 20}, 'physics': {'type': 'STATIC'}},
+                                       {'id': 'orb', 'name': 'Orb', 'transform': {'y': -80}, 'visual': {'type': 'IMAGE', 'assetId': 'image-1'}, 'physics': {'type': 'DYNAMIC'}, 'scriptId': 'bounce'}]}]
+          }
+          Path('build').mkdir(exist_ok=True)
+          with zipfile.ZipFile('build/ci-game.sengine', 'w', zipfile.ZIP_DEFLATED) as package:
+              package.writestr('project.json', json.dumps(project))
+              package.writestr('assets/image-1.img', png)
+          PY
+          set +e
+          python3 tools/build_android_game.py build/ci-game.sengine --application-id com.sengine.citest --output build/ci-player.apk 2>&1 | tee /tmp/sengine-player.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            details=$(tail -n 45 /tmp/sengine-player.log)
+            details=${details//\%/\%25}
+            details=${details//$'\r'/\%0D}
+            details=${details//$'\n'/\%0A}
+            printf '::error title=Player APK build output::%s\n' "$details"
+          fi
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: s-engine-player-smoke-apk
+          path: build/ci-player.apk
 
   web-player:
     runs-on: ubuntu-latest
